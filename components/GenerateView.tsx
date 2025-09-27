@@ -50,28 +50,64 @@ const GenerateView: React.FC<GenerateViewProps> = ({ setError, addHistoryItem })
   
   const handleSavePreset = () => {
     const name = prompt("Enter a name for your new preset:");
-    if (name && name.trim() !== "") {
-      setCustomPresets(prevPresets => {
-        if (prevPresets.some(p => p.name === name) || STYLE_PRESETS.some(p => p.name === name)) {
-          alert("A preset with this name already exists. Please choose a different name.");
-          return prevPresets;
-        }
-        const newPreset = { name, data: { ...promptData } };
-        const newPresets = [...prevPresets, newPreset];
-        localStorage.setItem('nano-banana-presets', JSON.stringify(newPresets));
+    if (!name || name.trim() === "") {
+      return;
+    }
+
+    let operation: 'duplicate' | 'saved' | null = null;
+    let newPresetsSnapshot: { name: string; data: PromptData }[] | null = null;
+
+    setCustomPresets(prevPresets => {
+      if (prevPresets.some(p => p.name === name) || STYLE_PRESETS.some(p => p.name === name)) {
+        operation = 'duplicate';
+        return prevPresets;
+      }
+
+      const newPreset = { name, data: { ...promptData } };
+      const newPresets = [...prevPresets, newPreset];
+      newPresetsSnapshot = newPresets;
+      operation = 'saved';
+      return newPresets;
+    });
+
+    if (operation === 'duplicate') {
+      alert("A preset with this name already exists. Please choose a different name.");
+      return;
+    }
+
+    if (operation === 'saved' && newPresetsSnapshot) {
+      try {
+        localStorage.setItem('nano-banana-presets', JSON.stringify(newPresetsSnapshot));
+        setError(null);
         alert(`Preset "${name}" saved!`);
-        return newPresets;
-      });
+      } catch (error) {
+        console.warn('Failed to persist custom presets to localStorage.', error);
+        setError('Unable to persist custom presets. Changes may not be saved for future sessions.');
+      }
     }
   };
 
   const handleDeletePreset = (presetName: string) => {
-    if (confirm(`Are you sure you want to delete the preset "${presetName}"?`)) {
-      setCustomPresets(prevPresets => {
-        const newPresets = prevPresets.filter(p => p.name !== presetName);
-        localStorage.setItem('nano-banana-presets', JSON.stringify(newPresets));
-        return newPresets;
-      });
+    if (!confirm(`Are you sure you want to delete the preset "${presetName}"?`)) {
+      return;
+    }
+
+    let newPresetsSnapshot: { name: string; data: PromptData }[] | null = null;
+
+    setCustomPresets(prevPresets => {
+      const newPresets = prevPresets.filter(p => p.name !== presetName);
+      newPresetsSnapshot = newPresets;
+      return newPresets;
+    });
+
+    if (newPresetsSnapshot) {
+      try {
+        localStorage.setItem('nano-banana-presets', JSON.stringify(newPresetsSnapshot));
+        setError(null);
+      } catch (error) {
+        console.warn('Failed to persist preset deletion to localStorage.', error);
+        setError('Unable to update stored presets. Changes may not persist.');
+      }
     }
   };
 
