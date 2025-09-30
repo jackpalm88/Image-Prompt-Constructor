@@ -1,5 +1,5 @@
 {
-  "name": "Nano Banana Guided Image App",
-  "description": "An intuitive web application for generating and editing images using a guided, structured prompt system powered by the Gemini 2.5 Flash Image model ('Nano Banana').",
+  "name": "D.O.M.A Image Studio",
+  "description": "An intuitive web application for generating and editing images using a guided, structured prompt system powered by the Gemini API.",
   "requestFramePermissions": []
 }

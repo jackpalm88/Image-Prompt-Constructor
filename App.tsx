@@ -1,21 +1,61 @@
-import React, { useState } from 'react';
-import { Tab, HistoryItem } from './types';
+
+
+import React, { useState, useEffect } from 'react';
+import { Tab, HistoryItem, PromptData, ImageFile, Template } from './types';
 import { TABS } from './constants';
 import GenerateView from './components/GenerateView';
 import EditView from './components/EditView';
 import ComposeView from './components/ComposeView';
 import HistoryView from './components/HistoryView';
-import Spinner from './components/Spinner';
-import { GenerateIcon, EditIcon, ComposeIcon, HistoryIcon } from './components/icons';
-import { applyIterativeChange } from './services/geminiService';
+import PromptsManager from './components/PromptsManager';
+import { SparklesIcon, BrushIcon, ComposeIcon, HistoryIcon, PromptsIcon } from './components/icons';
+import { DomaLogo } from './components/Logo';
+
+export type Notification = {
+  type: 'success' | 'error';
+  message: string;
+}
+
+const defaultPrompt: PromptData = {
+    subject: '', action: '', environment: '',
+    style: '', lighting: '', camera: '',
+};
+
+const initialLockedFields: Record<keyof PromptData, boolean> = {
+    subject: false, action: false, environment: false,
+    style: false, lighting: false, camera: false,
+};
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.Generate);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [iteratingHistoryItemId, setIteratingHistoryItemId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<Notification | null>(null);
+  const [isPromptsManagerOpen, setIsPromptsManagerOpen] = useState(false);
+  
+  // State for loading from history/other tabs
+  const [imageToEdit, setImageToEdit] = useState<string | null>(null);
+  const [imageToGenerate, setImageToGenerate] = useState<{ url: string; type: 'subject' | 'environment' } | null>(null);
 
-  const addHistoryItem = (resultImage: string, prompt: string, inputImages: string[] = []) => {
+  // Hoisted state for GenerateView
+  const [promptData, setPromptData] = useState<PromptData>(defaultPrompt);
+  const [resultImage, setResultImage] = useState<string | null>(null);
+  const [subjectImage, setSubjectImage] = useState<ImageFile | null>(null);
+  const [environmentImage, setEnvironmentImage] = useState<ImageFile | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [lockedFields, setLockedFields] = useState<Record<keyof PromptData, boolean>>(initialLockedFields);
+  const [remixHint, setRemixHint] = useState('');
+
+
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  const addHistoryItem = (resultImage: string, prompt: string, inputImages: string[] = [], promptData?: PromptData) => {
     const newItem: HistoryItem = {
       id: crypto.randomUUID(),
       type: activeTab,
@@ -23,93 +63,148 @@ const App: React.FC = () => {
       resultImage,
       inputImages,
       timestamp: Date.now(),
+      promptData,
     };
     setHistory(prev => [newItem, ...prev]);
   };
-  
-  const handleIterativeChange = async (item: HistoryItem, change: string) => {
-    setError(null);
-    setIteratingHistoryItemId(item.id);
-    try {
-        const [header, base64Data] = item.resultImage.split(',');
-        if (!header || !base64Data) {
-            throw new Error("Invalid image data URL format in history item.");
-        }
-        const mimeMatch = header.match(/:(.*?);/);
-        if (!mimeMatch || !mimeMatch[1]) {
-            throw new Error("Could not determine mime type from image data URL.");
-        }
-        const mimeType = mimeMatch[1];
 
-        const newImageUrl = await applyIterativeChange(base64Data, mimeType, change);
-        const prompt = `Iterative Change: ${change.replace('Make the image slightly ', '').replace('Increase the', 'More').toLowerCase()}`;
-        addHistoryItem(newImageUrl, prompt, [item.resultImage]);
-    } catch(err) {
-        setError((err as Error).message);
-    } finally {
-        setIteratingHistoryItemId(null);
-    }
+  const loadPromptData = (promptDataToLoad: PromptData, presetName?: string) => {
+    const { subject, action, environment, style, lighting, camera } = promptDataToLoad;
+    setPromptData({ subject, action, environment, style, lighting, camera });
+    
+    // Reset other related state for a clean slate
+    setResultImage(null);
+    setSubjectImage(null);
+    setEnvironmentImage(null);
+    setSelectedPreset(presetName || null);
+    setLockedFields(initialLockedFields);
+    setRemixHint('');
+  };
+
+  const handleUsePromptFromHistory = (promptDataToLoad: PromptData) => {
+    loadPromptData(promptDataToLoad);
+    setActiveTab(Tab.Generate);
+    setNotification({ type: 'success', message: 'Prompt loaded from history!' });
+  };
+
+  const handleApplyTemplate = (template: PromptData) => {
+    loadPromptData(template, (template as Template).name || undefined);
+    setActiveTab(Tab.Generate);
+    setNotification({ type: 'success', message: `Template "${(template as Template).name}" applied!`});
+  };
+
+  const handleLoadImageForEdit = (imageUrl: string) => {
+    setImageToEdit(imageUrl);
+    setActiveTab(Tab.Edit);
+  };
+  
+  const handleLoadImageForGenerate = (imageUrl: string, type: 'subject' | 'environment') => {
+    setImageToGenerate({ url: imageUrl, type });
+    setActiveTab(Tab.Generate);
   };
 
   const getIconForTab = (tabId: Tab) => {
     switch(tabId) {
-        case Tab.Generate: return <GenerateIcon className="h-5 w-5 mr-2" />;
-        case Tab.Edit: return <EditIcon className="h-5 w-5 mr-2" />;
+        case Tab.Generate: return <SparklesIcon className="h-5 w-5 mr-2" />;
+        case Tab.Edit: return <BrushIcon className="h-5 w-5 mr-2" />;
         case Tab.Compose: return <ComposeIcon className="h-5 w-5 mr-2" />;
         case Tab.History: return <HistoryIcon className="h-5 w-5 mr-2" />;
         default: return null;
     }
   }
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case Tab.Generate:
-        return <GenerateView setError={setError} addHistoryItem={(res, p, inputs) => addHistoryItem(res, p, inputs)} />;
-      case Tab.Edit:
-        return <EditView setError={setError} addHistoryItem={(res, p, inputs) => addHistoryItem(res, p, inputs)} />;
-      case Tab.Compose:
-        return <ComposeView setError={setError} addHistoryItem={(res, p, inputs) => addHistoryItem(res, p, inputs)} />;
-      case Tab.History:
-        return <HistoryView history={history} onIterate={handleIterativeChange} iteratingItemId={iteratingHistoryItemId} />;
-      default:
-        return null;
-    }
-  };
-
   return (
-    <div className="min-h-screen flex flex-col bg-gray-900 text-gray-200 font-sans">
-      <header className="bg-gray-800/30 backdrop-blur-sm sticky top-0 z-10 shadow-md">
-        <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-white">
-            <span className="text-cyan-400">Nano Banana</span> Guided Image App
-          </h1>
-          <nav className="flex space-x-2 bg-gray-900/50 p-1 rounded-lg">
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
+    <div className="min-h-screen flex flex-col bg-doma-cream text-doma-dark-gray font-sans">
+      <header className="sticky top-0 z-20 bg-doma-cream/80 backdrop-blur-sm border-b border-doma-dark-gray/10">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          <DomaLogo />
+          <div className="flex items-center space-x-2">
+            <button
+                onClick={() => setIsPromptsManagerOpen(true)}
+                className="flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-red bg-white/50 text-doma-dark-gray hover:bg-white border border-black/5 shadow-sm"
               >
-                {getIconForTab(tab.id)}
-                {tab.label}
+                <PromptsIcon className="h-5 w-5 mr-0 md:mr-2" />
+                <span className="hidden md:inline">Prompts</span>
               </button>
-            ))}
-          </nav>
+            <nav className="flex space-x-1 bg-doma-cream p-1 rounded-full shadow-inner-soft border border-black/5">
+              {TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-red ${
+                    activeTab === tab.id
+                      ? 'bg-doma-green text-white shadow-md'
+                      : 'text-doma-dark-gray hover:bg-white/50'
+                  }`}
+                >
+                  {getIconForTab(tab.id)}
+                  <span className="hidden md:inline">{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
         </div>
       </header>
       <main className="flex-grow relative">
-        {error && (
-            <div className="absolute top-4 right-4 bg-red-800 text-white p-4 rounded-lg shadow-lg z-30 max-w-sm">
-                <h3 className="font-bold mb-2">Error</h3>
-                <p className="text-sm">{error}</p>
-                <button onClick={() => setError(null)} className="absolute top-2 right-2 text-xl">&times;</button>
+        {notification && (
+            <div className={`fixed top-24 right-4 p-4 rounded-xl shadow-lg z-50 max-w-sm text-white animate-fade-in-up ${notification.type === 'error' ? 'bg-gradient-to-br from-doma-red to-red-700' : 'bg-gradient-to-br from-doma-green to-green-900'}`}>
+                <h3 className="font-bold mb-1 capitalize">{notification.type}</h3>
+                <p className="text-sm">{notification.message}</p>
+                <button onClick={() => setNotification(null)} className="absolute top-2 right-2 text-xl leading-none">&times;</button>
             </div>
         )}
-        {renderContent()}
+        
+        <PromptsManager
+            isOpen={isPromptsManagerOpen}
+            onClose={() => setIsPromptsManagerOpen(false)}
+            onApplyTemplate={handleApplyTemplate}
+            setNotification={setNotification}
+        />
+
+        <div className={activeTab === Tab.Generate ? 'block h-full' : 'hidden'}>
+            <GenerateView 
+              setNotification={setNotification} 
+              addHistoryItem={addHistoryItem} 
+              imageToLoad={imageToGenerate}
+              onImageLoaded={() => setImageToGenerate(null)}
+              // Pass hoisted state and setters
+              promptData={promptData}
+              setPromptData={setPromptData}
+              resultImage={resultImage}
+              setResultImage={setResultImage}
+              subjectImage={subjectImage}
+              setSubjectImage={setSubjectImage}
+              environmentImage={environmentImage}
+              setEnvironmentImage={setEnvironmentImage}
+              selectedPreset={selectedPreset}
+              setSelectedPreset={setSelectedPreset}
+              lockedFields={lockedFields}
+              setLockedFields={setLockedFields}
+              remixHint={remixHint}
+              setRemixHint={setRemixHint}
+              onApplyTemplate={handleApplyTemplate}
+            />
+        </div>
+        <div className={activeTab === Tab.Edit ? 'block h-full' : 'hidden'}>
+            <EditView 
+              setNotification={setNotification} 
+              addHistoryItem={addHistoryItem}
+              imageToLoad={imageToEdit}
+              onImageLoaded={() => setImageToEdit(null)}
+            />
+        </div>
+        <div className={activeTab === Tab.Compose ? 'block h-full' : 'hidden'}>
+            <ComposeView setNotification={setNotification} addHistoryItem={addHistoryItem} />
+        </div>
+        <div className={activeTab === Tab.History ? 'block h-full' : 'hidden'}>
+            <HistoryView 
+              history={history} 
+              onUsePrompt={handleUsePromptFromHistory} 
+              setNotification={setNotification} 
+              onLoadImageForEdit={handleLoadImageForEdit}
+              onLoadImageForGenerate={handleLoadImageForGenerate}
+            />
+        </div>
       </main>
     </div>
   );

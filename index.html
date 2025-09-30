@@ -1,12 +1,14 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg width='50' height='50' viewBox='0 0 50 50' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='50' height='50' fill='%23F5F1E6'/%3E%3Cg%3E%3Cpath d='M25 7 L40 38 L10 38 Z' fill='%23CCB45F' /%3E%3Cpath d='M10 40 Q 20 35 25 40 T 40 40' stroke='%23273345' strokeWidth='3' fill='none' /%3E%3Cpath d='M28 5 C 48 5 48 25 32 25 C 20 25 20 40 35 48' stroke='%23444445' strokeWidth='5' fill='none' strokeLinecap='round' /%3E%3Cpath d='M35 38 L48 48 L38 45 L28 48 Z' fill='%238C3331'/%3E%3C/g%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nano Banana Guided Image App</title>
+    <title>D.O.M.A Image Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Teko:wght@300;400;500;700&display=swap" rel="stylesheet">
   <script type="importmap">
 {
   "imports": {
@@ -17,8 +19,46 @@
   }
 }
 </script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Teko', 'sans-serif'],
+          },
+          colors: {
+            'doma-cream': '#F5F1E6',
+            'doma-dark-gray': '#444445',
+            'doma-green': '#273345',
+            'doma-red': '#8C3331',
+            'doma-yellow': '#CCB45F',
+          },
+          animation: {
+            'fade-in-up': 'fadeInUp 0.3s ease-out forwards',
+          },
+          keyframes: {
+            fadeInUp: {
+              '0%': { opacity: '0', transform: 'translateY(10px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+          },
+          boxShadow: {
+            'inner-soft': 'inset 0 2px 4px 0 rgb(0 0 0 / 0.05)',
+            'lg-doma': '0 10px 15px -3px rgba(39, 51, 69, 0.1), 0 4px 6px -4px rgba(39, 51, 69, 0.1)',
+          }
+        },
+      },
+    }
+  </script>
+  <style>
+    body {
+        background-color: #F5F1E6;
+        background-image: url("data:image/svg+xml,%3Csvg width='6' height='6' viewBox='0 0 6 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23444445' fill-opacity='0.04' fill-rule='evenodd'%3E%3Cpath d='M5 0h1L0 6V5zM6 5v1H5z'/%3E%3C/g%3E%3C/svg%3E");
+    }
+  </style>
 </head>
-  <body class="bg-gray-900 text-white">
+  <body class="text-doma-dark-gray">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

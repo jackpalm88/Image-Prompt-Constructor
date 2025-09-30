@@ -1,67 +1,60 @@
+
 import React from 'react';
-import { PromptData } from '../types';
-import { TrashIcon } from './icons';
+import { Template } from '../types';
+import { PinIcon } from './icons';
 
 interface StylePresetSelectorProps {
-  presets: { name: string; data: PromptData }[];
-  customPresets: { name: string; data: PromptData }[];
-  onSelect: (preset: { name: string; data: PromptData }) => void;
-  onDelete: (presetName: string) => void;
+  templates: Template[];
+  onSelect: (template: Template) => void;
+  onUnpin: (templateId: string) => void;
   selectedPreset: string | null;
 }
 
-const StylePresetSelector: React.FC<StylePresetSelectorProps> = ({ presets, customPresets, onSelect, onDelete, selectedPreset }) => {
-  const allPresets = [...presets, ...customPresets];
+const StylePresetSelector: React.FC<StylePresetSelectorProps> = ({ templates, onSelect, onUnpin, selectedPreset }) => {
+  if (templates.length === 0) {
+    return (
+        <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Quick Access:</label>
+            <p className="text-sm text-gray-500 bg-gray-100/80 p-3 rounded-lg">Pin your favorite templates in the <span className="font-semibold">Prompts Manager</span> to see them here!</p>
+        </div>
+    );
+  }
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-300 mb-2">Start with a style preset:</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Quick Access:</label>
       <div className="flex flex-wrap gap-2">
-        {allPresets.map((preset) => {
-          const isCustom = customPresets.some(p => p.name === preset.name);
-
-          if (isCustom) {
-            return (
-              <div key={preset.name} className="flex items-center bg-gray-700 rounded-full group">
-                <button
-                  type="button"
-                  onClick={() => onSelect(preset)}
-                  className={`pl-3 pr-2 py-1.5 text-sm font-semibold transition-colors duration-200 rounded-l-full ${
-                    selectedPreset === preset.name
-                      ? 'bg-cyan-600 text-white'
-                      : 'text-gray-300 group-hover:bg-gray-600 group-hover:text-white'
-                  }`}
-                >
-                  {preset.name}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(preset.name);
-                  }}
-                  className="p-1.5 text-gray-400 hover:text-red-400 rounded-r-full group-hover:bg-gray-600 transition-colors"
-                  title={`Delete preset "${preset.name}"`}
-                >
-                  <TrashIcon className="h-4 w-4" />
-                </button>
-              </div>
-            );
-          } else {
-            return (
+        {templates.map((template) => {
+          const isSelected = selectedPreset === template.name;
+          return (
+            <div key={template.id} className={`flex items-center rounded-lg group transition-colors duration-200 shadow-sm ${isSelected ? 'bg-doma-green' : 'bg-white'}`}>
               <button
-                key={preset.name}
                 type="button"
-                onClick={() => onSelect(preset)}
-                className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-colors duration-200 ${
-                  selectedPreset === preset.name
-                    ? 'bg-cyan-600 text-white shadow-md'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
+                onClick={() => onSelect(template)}
+                className={`pl-3 pr-2 py-1.5 text-sm font-semibold transition-colors duration-200 rounded-l-lg border-y border-l ${
+                  isSelected
+                    ? 'bg-doma-green text-white border-transparent'
+                    : 'text-gray-700 group-hover:bg-gray-100 border-gray-200 group-hover:border-gray-300'
                 }`}
               >
-                {preset.name}
+                {template.name}
               </button>
-            );
-          }
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnpin(template.id);
+                }}
+                className={`p-1.5 rounded-r-lg border-y border-r transition-colors ${
+                  isSelected
+                    ? 'text-red-300 hover:text-white border-transparent'
+                    : 'text-gray-400 hover:text-doma-red border-gray-200 group-hover:bg-gray-100 group-hover:border-gray-300'
+                }`}
+                title={`Unpin "${template.name}" from Quick Access`}
+              >
+                <PinIcon className="h-4 w-4" />
+              </button>
+            </div>
+          );
         })}
       </div>
     </div>

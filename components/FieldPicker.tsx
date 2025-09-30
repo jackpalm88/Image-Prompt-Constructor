@@ -1,8 +1,11 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { PromptData } from '../types';
 import { suggestFieldOptions } from '../services/geminiService';
-import { SparklesIcon, ShuffleIcon } from './icons';
+import { SparklesIcon, ShuffleIcon, LockClosedIcon, LockOpenIcon } from './icons';
 import MiniSpinner from './MiniSpinner';
+import { Notification } from '../App';
 
 interface FieldPickerProps {
   label: string;
@@ -11,12 +14,15 @@ interface FieldPickerProps {
   onChange: (name: keyof PromptData, value: string) => void;
   placeholder: string;
   isTextarea?: boolean;
-  initialOptions: string[];
+  initialOptions?: string[];
   promptContext: PromptData;
-  setError: (error: string | null) => void;
+  setNotification: (notification: Notification | null) => void;
+  disabled?: boolean;
+  isLocked: boolean;
+  onToggleLock: (name: keyof PromptData) => void;
 }
 
-const FieldPicker: React.FC<FieldPickerProps> = ({ label, value, name, onChange, placeholder, isTextarea, initialOptions, promptContext, setError }) => {
+const FieldPicker: React.FC<FieldPickerProps> = ({ label, value, name, onChange, placeholder, isTextarea, initialOptions = [], promptContext, setNotification, disabled = false, isLocked, onToggleLock }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [currentOptions, setCurrentOptions] = useState(initialOptions);
   const [isSuggesting, setIsSuggesting] = useState(false);
@@ -39,12 +45,12 @@ const FieldPicker: React.FC<FieldPickerProps> = ({ label, value, name, onChange,
 
   const handleSuggest = async () => {
     setIsSuggesting(true);
-    setError(null);
+    setNotification(null);
     try {
       const newOptions = await suggestFieldOptions(name, promptContext);
       setCurrentOptions(newOptions);
     } catch (err) {
-      setError((err as Error).message);
+      setNotification({ type: 'error', message: (err as Error).message });
       setIsPickerOpen(false);
     } finally {
       setIsSuggesting(false);
@@ -55,45 +61,59 @@ const FieldPicker: React.FC<FieldPickerProps> = ({ label, value, name, onChange,
 
   return (
     <div ref={pickerRef} className="relative">
-      <label htmlFor={name} className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      <div className="flex justify-between items-center mb-1">
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700">{label}</label>
+        <button
+          type="button"
+          onClick={() => onToggleLock(name)}
+          className="text-gray-400 hover:text-doma-green transition-colors disabled:opacity-50"
+          title={isLocked ? "Unlock field" : "Lock field (will not be changed by AI remix)"}
+          disabled={disabled}
+        >
+          {isLocked ? <LockClosedIcon className="h-4 w-4 text-doma-yellow" /> : <LockOpenIcon className="h-4 w-4" />}
+        </button>
+      </div>
       <div className="relative">
         <InputComponent
           id={name}
           name={name}
           value={value}
           onChange={(e) => onChange(name, e.target.value)}
-          rows={isTextarea ? 2 : undefined}
-          className="w-full bg-gray-800 border border-gray-600 rounded-md shadow-sm p-2 pr-10 text-white focus:ring-cyan-500 focus:border-cyan-500"
+          rows={isTextarea ? 3 : undefined}
+          disabled={disabled}
+          className={`w-full bg-white border rounded-lg shadow-inner-soft p-2 pr-10 text-doma-dark-gray focus:ring-2 focus:ring-doma-yellow/50 focus:border-doma-green disabled:bg-gray-100 disabled:opacity-70 disabled:cursor-not-allowed transition ${isLocked ? 'border-doma-yellow/80 ring-1 ring-doma-yellow/50' : 'border-gray-300'}`}
           placeholder={placeholder}
           onClick={() => {
+            if (disabled) return;
             setCurrentOptions(initialOptions); // Reset to initial on click
             setIsPickerOpen(true);
           }}
         />
         <button
           type="button"
+          disabled={disabled}
           onClick={() => {
             if (!isPickerOpen) setCurrentOptions(initialOptions);
             setIsPickerOpen(!isPickerOpen)
           }}
-          className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-cyan-400 transition-colors"
+          className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-doma-green transition-colors disabled:text-gray-300 disabled:cursor-not-allowed"
           title="Show suggestions"
         >
           <SparklesIcon className="h-5 w-5" />
         </button>
       </div>
 
-      {isPickerOpen && (
-        <div className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-600 rounded-lg shadow-xl animate-fade-in-up">
-          <div className="p-2 flex justify-between items-center border-b border-gray-700">
-            <h4 className="text-sm font-semibold text-gray-300 px-2">Suggestions</h4>
+      {isPickerOpen && !disabled && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg animate-fade-in-up">
+          <div className="p-2 flex justify-between items-center border-b border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-600 px-2">Suggestions</h4>
             <button
               onClick={handleSuggest}
               disabled={isSuggesting}
-              className="flex items-center space-x-2 text-xs bg-cyan-900/70 hover:bg-cyan-800/90 text-cyan-200 rounded-full px-3 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center space-x-2 text-xs bg-doma-green/10 hover:bg-doma-green/20 text-doma-green font-semibold rounded-full px-3 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Generate new suggestions with AI"
             >
-              <ShuffleIcon className="h-4 w-4" />
+              {isSuggesting ? <MiniSpinner /> : <ShuffleIcon className="h-4 w-4" />}
               <span>Suggest with AI</span>
             </button>
           </div>
@@ -108,7 +128,7 @@ const FieldPicker: React.FC<FieldPickerProps> = ({ label, value, name, onChange,
                   <button
                     type="button"
                     onClick={() => handleSelectOption(option)}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700/80 transition-colors"
+                    className="w-full text-left px-4 py-2 text-sm text-doma-dark-gray hover:bg-gray-100 transition-colors"
                   >
                     {option}
                   </button>

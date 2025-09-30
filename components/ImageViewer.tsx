@@ -40,7 +40,7 @@ const ImageViewer: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
   
   return (
     <div 
-        className="w-full h-full flex items-center justify-center overflow-hidden rounded-lg bg-gray-900/50 relative"
+        className="w-full h-full flex items-center justify-center overflow-hidden rounded-xl bg-gray-100 relative"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
@@ -58,10 +58,10 @@ const ImageViewer: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
         draggable={false}
         onDragStart={(e) => e.preventDefault()}
       />
-      <div className="absolute bottom-3 right-3 bg-gray-900/70 backdrop-blur-sm p-1 rounded-lg flex items-center space-x-1 shadow-lg">
-        <button onClick={(e) => { e.stopPropagation(); handleZoomOut(); }} title="Zoom Out" className="p-2 text-gray-300 hover:text-white hover:bg-gray-700/50 rounded-md transition-colors"><ZoomOutIcon className="h-5 w-5" /></button>
-        <button onClick={(e) => { e.stopPropagation(); handleReset(); }} title="Reset Zoom" className="p-2 text-gray-300 hover:text-white hover:bg-gray-700/50 rounded-md transition-colors"><ResetZoomIcon className="h-5 w-5" /></button>
-        <button onClick={(e) => { e.stopPropagation(); handleZoomIn(); }} title="Zoom In" className="p-2 text-gray-300 hover:text-white hover:bg-gray-700/50 rounded-md transition-colors"><ZoomInIcon className="h-5 w-5" /></button>
+      <div className="absolute bottom-3 right-3 bg-white/70 backdrop-blur-sm p-1 rounded-xl flex items-center space-x-1 shadow-md border border-gray-200/50">
+        <button onClick={(e) => { e.stopPropagation(); handleZoomOut(); }} title="Zoom Out" className="p-2 text-doma-dark-gray hover:text-doma-green hover:bg-gray-200/50 rounded-lg transition-colors"><ZoomOutIcon className="h-5 w-5" /></button>
+        <button onClick={(e) => { e.stopPropagation(); handleReset(); }} title="Reset Zoom" className="p-2 text-doma-dark-gray hover:text-doma-green hover:bg-gray-200/50 rounded-lg transition-colors"><ResetZoomIcon className="h-5 w-5" /></button>
+        <button onClick={(e) => { e.stopPropagation(); handleZoomIn(); }} title="Zoom In" className="p-2 text-doma-dark-gray hover:text-doma-green hover:bg-gray-200/50 rounded-lg transition-colors"><ZoomInIcon className="h-5 w-5" /></button>
       </div>
     </div>
   );

@@ -15,6 +15,19 @@ export interface PromptData {
   camera: string;
 }
 
+export interface Template extends PromptData {
+  id: string;
+  name: string;
+  category: string;
+  tags: string[];
+  favorite: boolean;
+  pinned: boolean;
+  usageCount: number;
+  lastUsed: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ImageFile {
   file: File;
   preview: string;
@@ -28,4 +41,5 @@ export type HistoryItem = {
   resultImage: string;
   inputImages: string[];
   timestamp: number;
+  promptData?: PromptData;
 }
