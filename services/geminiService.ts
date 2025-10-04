@@ -14,6 +14,42 @@ export const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
+export const createThumbnail = (base64Image: string, size = 256): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return reject(new Error('Could not get canvas context'));
+      }
+
+      let { width, height } = img;
+
+      if (width > height) {
+        if (width > size) {
+          height *= size / width;
+          width = size;
+        }
+      } else {
+        if (height > size) {
+          width *= size / height;
+          height = size;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.drawImage(img, 0, 0, width, height);
+      // Use JPEG for better compression of photographic images, crucial for localStorage
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = (err) => reject(err);
+    img.src = base64Image;
+  });
+};
+
 const extractImageFromResponse = (response: GenerateContentResponse): string | null => {
     for (const part of response.candidates?.[0]?.content?.parts ?? []) {
         if (part.inlineData?.data) {
@@ -157,7 +193,7 @@ export const generateFullPromptIdea = async (subjectImage: ImageFile | null, env
         promptText += "The user has provided an image of a subject. Create a prompt that places this subject into a new, interesting scene. Base your subject description on this image.";
         parts.push({ inlineData: { data: subjectImage.base64, mimeType: subjectImage.file.type } });
     } else if (environmentImage) {
-        promptText += "The user has provided a reference image for an environment. Create a prompt for a new scene inspired by the style and mood of this image.";
+        promptText += "The user has provided a reference image for an environment. Analyze the provided reference image. Describe the scene in the image by filling out all fields in the provided JSON schema. Extract details about the environment, style, lighting, and camera directly from the image. For 'subject' and 'action', invent a plausible subject and action that would fit naturally into this environment.";
         parts.push({ inlineData: { data: environmentImage.base64, mimeType: environmentImage.file.type } });
     } else {
         promptText += "Generate a completely new and random scene idea.";
@@ -183,6 +219,60 @@ export const generateFullPromptIdea = async (subjectImage: ImageFile | null, env
     } catch (error) {
          console.error("Error generating full prompt idea:", error);
         throw new Error("Failed to get AI inspiration. Check console for details.");
+    }
+};
+
+const TEMPLATE_METADATA_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "A short, descriptive title for the prompt (max 5 words), e.g., 'Cyberpunk Detective'." },
+        category: { type: Type.STRING, description: "A single, relevant category for this prompt, e.g., 'Sci-Fi', 'Nature', 'Portraits'." },
+        tags: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "An array of 3-5 relevant lowercase keywords (tags) for searching, e.g., ['neon', 'city', 'dystopian']."
+        }
+    },
+    required: ["name", "category", "tags"]
+};
+
+export const suggestTemplateMetadata = async (promptData: PromptData): Promise<{name: string, category: string, tags: string[]}> => {
+    const prompt = `You are an expert prompt engineering assistant.
+Given the following structured image prompt, generate a short, descriptive name (max 5 words), a single relevant category, and an array of 3-5 relevant lowercase keywords (tags).
+The name should be a concise and appealing title for the scene.
+
+Image Prompt Details:
+---
+Subject: ${promptData.subject}
+Action: ${promptData.action}
+Environment: ${promptData.environment}
+Style: ${promptData.style}
+Lighting: ${promptData.lighting}
+Camera: ${promptData.camera}
+---
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: TEMPLATE_METADATA_SCHEMA,
+            }
+        });
+
+        const jsonStr = response.text.trim();
+        const metadata = JSON.parse(jsonStr);
+
+        if (metadata && typeof metadata.name === 'string' && typeof metadata.category === 'string' && Array.isArray(metadata.tags)) {
+            return metadata;
+        }
+        throw new Error("AI response did not match the expected format.");
+
+    } catch (error) {
+        console.error("Error suggesting template metadata:", error);
+        throw new Error("Failed to get AI suggestions for template details. Check console for details.");
     }
 };
 

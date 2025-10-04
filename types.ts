@@ -1,4 +1,5 @@
 
+
 export enum Tab {
   Generate = 'GENERATE',
   Edit = 'EDIT',
@@ -23,9 +24,11 @@ export interface Template extends PromptData {
   favorite: boolean;
   pinned: boolean;
   usageCount: number;
-  lastUsed: number | null;
+  lastUsed: number;
   createdAt: number;
   updatedAt: number;
+  signature: string;
+  thumbnail?: string;
 }
 
 export interface ImageFile {

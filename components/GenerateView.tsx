@@ -5,7 +5,7 @@ import { PromptData, ImageFile, Template } from '../types';
 import { generateImage, fileToBase64, generateFullPromptIdea, remixPromptIdea } from '../services/geminiService';
 import * as templatesStore from '../services/templatesStore';
 import Spinner from './Spinner';
-import { DownloadIcon, WarningIcon, SaveIcon, LightbulbIcon, ShuffleIcon, DocumentAddIcon } from './icons';
+import { DownloadIcon, WarningIcon, SaveIcon, LightbulbIcon, ShuffleIcon, DocumentAddIcon, TrashIcon } from './icons';
 import ImageViewer from './ImageViewer';
 import { QUICK_SELECT_OPTIONS } from '../constants';
 import StylePresetSelector from './StylePresetSelector';
@@ -13,6 +13,7 @@ import FieldPicker from './FieldPicker';
 import { Notification } from '../App';
 import MiniSpinner from './MiniSpinner';
 import BulkImportModal from './BulkImportModal';
+import QuickSaveTemplateModal from './QuickSaveTemplateModal';
 
 interface GenerateViewProps {
   setNotification: (notification: Notification | null) => void;
@@ -20,6 +21,7 @@ interface GenerateViewProps {
   imageToLoad: { url: string; type: 'subject' | 'environment' } | null;
   onImageLoaded: () => void;
   onApplyTemplate: (template: PromptData) => void;
+  openPromptsManager: (highlightId?: string) => void;
   
   // Hoisted State
   promptData: PromptData;
@@ -45,7 +47,7 @@ const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> =
 };
 
 const GenerateView: React.FC<GenerateViewProps> = ({ 
-    setNotification, addHistoryItem, imageToLoad, onImageLoaded, onApplyTemplate,
+    setNotification, addHistoryItem, imageToLoad, onImageLoaded, onApplyTemplate, openPromptsManager,
     promptData, setPromptData, resultImage, setResultImage,
     subjectImage, setSubjectImage, environmentImage, setEnvironmentImage,
     selectedPreset, setSelectedPreset, lockedFields, setLockedFields,
@@ -55,13 +57,28 @@ const GenerateView: React.FC<GenerateViewProps> = ({
   const [isGeneratingIdea, setIsGeneratingIdea] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [pinnedTemplates, setPinnedTemplates] = useState<Template[]>([]);
-
-  const refreshPinnedTemplates = () => {
-    setPinnedTemplates(templatesStore.getPinnedTemplates());
-  }
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   useEffect(() => {
-    refreshPinnedTemplates();
+    const refreshPinnedTemplates = async () => {
+        setPinnedTemplates(await templatesStore.getPinnedTemplates());
+    };
+
+    const handleStorageUpdate = (event: StorageEvent) => {
+        if (event.key === 'doma-image-studio-templates') {
+            refreshPinnedTemplates();
+        }
+    };
+    
+    refreshPinnedTemplates(); // Initial load
+
+    window.addEventListener('doma:templates-updated', refreshPinnedTemplates as EventListener);
+    window.addEventListener('storage', handleStorageUpdate);
+
+    return () => {
+        window.removeEventListener('doma:templates-updated', refreshPinnedTemplates as EventListener);
+        window.removeEventListener('storage', handleStorageUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -95,67 +112,39 @@ const GenerateView: React.FC<GenerateViewProps> = ({
     setLockedFields(prev => ({ ...prev, [fieldName]: !prev[fieldName] }));
   };
 
-  const handlePresetSelect = (template: Template) => {
+  const handlePresetSelect = async (template: Template) => {
       onApplyTemplate(template);
-      templatesStore.incrementUsage(template.id);
+      await templatesStore.incrementUsage(template.id);
   };
   
-  const handleSavePreset = () => {
-    const name = prompt("Enter a name for your new template:");
-    if (!name || name.trim() === "") {
-      if(name !== null) setNotification({ type: 'error', message: "Template name cannot be empty." });
-      return;
-    }
-
-    const trimmedName = name.trim();
-    const existingTemplates = templatesStore.getTemplates();
-    if (existingTemplates.some(t => t.name.toLowerCase() === trimmedName.toLowerCase())) {
-        setNotification({ type: 'error', message: `A template named "${trimmedName}" already exists.` });
-        return;
-    }
-
-    templatesStore.createTemplate({
-        name: trimmedName,
-        ...promptData,
-        category: 'Uncategorized',
-        tags: [],
-        favorite: false,
-        pinned: false,
-        usageCount: 0,
-        lastUsed: null,
-    });
-    setNotification({ type: 'success', message: `Template "${trimmedName}" saved!` });
+  const handleSaveAsTemplate = () => {
+    setShowSaveModal(true);
   };
   
-  const handleUnpinTemplate = (templateId: string) => {
-      templatesStore.updateTemplate(templateId, { pinned: false });
-      refreshPinnedTemplates();
+  const handleUnpinTemplate = async (templateId: string) => {
+      await templatesStore.updateTemplate(templateId, { pinned: false });
       setNotification({ type: 'success', message: 'Template unpinned from Quick Access.' });
   }
 
-  const handleBulkImport = (newTemplates: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>[]) => {
-    const existingTemplates = templatesStore.getTemplates();
-    const existingNames = new Set(existingTemplates.map(t => t.name.toLowerCase()));
+  const handleBulkImport = async (newTemplates: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>[]) => {
     let addedCount = 0;
-
-    newTemplates.forEach(t => {
-        if (!existingNames.has(t.name.toLowerCase())) {
-            templatesStore.createTemplate(t);
-            addedCount++;
-            existingNames.add(t.name.toLowerCase()); // Add to set to prevent duplicates within the same import
-        }
-    });
+    
+    for (const t of newTemplates) {
+      const { status } = await templatesStore.upsertTemplate(t);
+      if (status === 'created') {
+        addedCount++;
+      }
+    }
 
     if (addedCount > 0) {
         let message = `${addedCount} new template${addedCount > 1 ? 's' : ''} imported successfully!`;
         if (addedCount < newTemplates.length) {
-            message += ` ${newTemplates.length - addedCount} had duplicate names and were skipped.`
+            message += ` ${newTemplates.length - addedCount} were duplicates and were updated/merged.`
         }
         setNotification({ type: 'success', message });
     } else {
-        setNotification({ type: 'error', message: 'All imported templates had names that already exist. None were added.' });
+        setNotification({ type: 'success', message: 'All imported templates were duplicates of existing ones. Their metadata may have been updated.' });
     }
-    refreshPinnedTemplates();
 };
 
   const handleSubjectImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -269,8 +258,26 @@ const GenerateView: React.FC<GenerateViewProps> = ({
     document.body.removeChild(link);
   };
 
+  const handleClearFields = () => {
+    setPromptData({
+      subject: '', action: '', environment: '',
+      style: '', lighting: '', camera: '',
+    });
+    handleClearSubjectImage();
+    handleClearEnvironmentImage();
+    setSelectedPreset(null);
+    setLockedFields({
+      subject: false, action: false, environment: false,
+      style: false, lighting: false, camera: false,
+    });
+    setRemixHint('');
+    setResultImage(null);
+    setNotification({ type: 'success', message: 'All fields have been cleared.' });
+  };
+
   // A prompt is considered empty if it does not have at least one field with a non-empty string.
   const isPromptEmpty = !Object.values(promptData).some(val => val && typeof val === 'string' && val.trim() !== '');
+  const isFormEmpty = isPromptEmpty && !subjectImage && !environmentImage;
   const inspireMeText = isPromptEmpty ? 'Inspire Me' : 'Remix Scene';
   const inspireMeTitle = isPromptEmpty ? 'Generate a new scene idea with AI' : 'Generate a variation of the current scene';
   const InspireIcon = isPromptEmpty ? LightbulbIcon : ShuffleIcon;
@@ -374,12 +381,17 @@ const GenerateView: React.FC<GenerateViewProps> = ({
             <FieldPicker label="Style" name="style" value={promptData.style} onChange={handleChange} placeholder="e.g., hyperrealistic, 8k, digital art." promptContext={promptData} setNotification={setNotification} initialOptions={QUICK_SELECT_OPTIONS.style} isLocked={lockedFields.style} onToggleLock={handleToggleLock} />
             <FieldPicker label="Lighting" name="lighting" value={promptData.lighting} onChange={handleChange} placeholder="e.g., dramatic backlighting, lens flare." promptContext={promptData} setNotification={setNotification} initialOptions={QUICK_SELECT_OPTIONS.lighting} isLocked={lockedFields.lighting} onToggleLock={handleToggleLock} />
             <FieldPicker label="Camera / Angle" name="camera" value={promptData.camera} onChange={handleChange} placeholder="e.g., wide-angle lens, low-angle shot." promptContext={promptData} setNotification={setNotification} initialOptions={QUICK_SELECT_OPTIONS.camera} isLocked={lockedFields.camera} onToggleLock={handleToggleLock} />
-             <div className="flex items-center space-x-4 !mt-6">
+             <div className="flex items-center space-x-2 !mt-6">
                 <button type="submit" disabled={isGenerating || isGeneratingIdea} className="flex-grow bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg-doma disabled:opacity-50 disabled:cursor-not-allowed">
                     Generate Image
                 </button>
-                <button type="button" onClick={handleSavePreset} disabled={isGenerating || isGeneratingIdea || isPromptEmpty} title="Save current fields as a new template" className="flex-shrink-0 p-3 bg-doma-green hover:bg-opacity-90 text-white font-bold rounded-xl transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg-doma">
-                    <SaveIcon className="h-6 w-6" />
+                <button type="button" onClick={handleClearFields} disabled={isGenerating || isGeneratingIdea || isFormEmpty} title="Clear all fields and images" className="flex items-center gap-2 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-doma-dark-gray font-bold rounded-xl transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                    <TrashIcon className="h-5 w-5" />
+                    <span>Clear</span>
+                </button>
+                <button type="button" onClick={handleSaveAsTemplate} disabled={isGenerating || isGeneratingIdea || isPromptEmpty} title="Save current fields as a new template" className="flex items-center gap-2 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-doma-dark-gray font-bold rounded-xl transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                    <SaveIcon className="h-5 w-5" />
+                    <span>Save</span>
                 </button>
             </div>
         </form>
@@ -417,6 +429,25 @@ const GenerateView: React.FC<GenerateViewProps> = ({
             onClose={() => setIsBulkImportOpen(false)}
             onImport={handleBulkImport}
             setNotification={setNotification}
+        />
+    )}
+    {showSaveModal && (
+        <QuickSaveTemplateModal
+          promptData={promptData}
+          thumbnail={resultImage}
+          onClose={()=>setShowSaveModal(false)}
+          onSaved={(id, status)=>{
+            setNotification({ 
+                type: 'success', 
+                message: status === 'updated' 
+                    ? 'Existing template updated with new metadata/tags.' 
+                    : 'Template saved successfully!',
+                action: {
+                    label: 'Open Manager',
+                    onClick: () => openPromptsManager(id),
+                }
+            });
+          }}
         />
     )}
     </>

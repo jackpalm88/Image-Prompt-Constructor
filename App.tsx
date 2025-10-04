@@ -14,6 +14,10 @@ import { DomaLogo } from './components/Logo';
 export type Notification = {
   type: 'success' | 'error';
   message: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+  }
 }
 
 const defaultPrompt: PromptData = {
@@ -31,6 +35,7 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [notification, setNotification] = useState<Notification | null>(null);
   const [isPromptsManagerOpen, setIsPromptsManagerOpen] = useState(false);
+  const [highlightedTemplateId, setHighlightedTemplateId] = useState<string | undefined>();
   
   // State for loading from history/other tabs
   const [imageToEdit, setImageToEdit] = useState<string | null>(null);
@@ -103,6 +108,16 @@ const App: React.FC = () => {
     setActiveTab(Tab.Generate);
   };
 
+  const openPromptsManager = (highlightId?: string) => {
+    setIsPromptsManagerOpen(true);
+    setHighlightedTemplateId(highlightId);
+  };
+
+  const closePromptsManager = () => {
+    setIsPromptsManagerOpen(false);
+    setHighlightedTemplateId(undefined);
+  };
+
   const getIconForTab = (tabId: Tab) => {
     switch(tabId) {
         case Tab.Generate: return <SparklesIcon className="h-5 w-5 mr-2" />;
@@ -120,7 +135,7 @@ const App: React.FC = () => {
           <DomaLogo />
           <div className="flex items-center space-x-2">
             <button
-                onClick={() => setIsPromptsManagerOpen(true)}
+                onClick={() => openPromptsManager()}
                 className="flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-red bg-white/50 text-doma-dark-gray hover:bg-white border border-black/5 shadow-sm"
               >
                 <PromptsIcon className="h-5 w-5 mr-0 md:mr-2" />
@@ -148,17 +163,33 @@ const App: React.FC = () => {
       <main className="flex-grow relative">
         {notification && (
             <div className={`fixed top-24 right-4 p-4 rounded-xl shadow-lg z-50 max-w-sm text-white animate-fade-in-up ${notification.type === 'error' ? 'bg-gradient-to-br from-doma-red to-red-700' : 'bg-gradient-to-br from-doma-green to-green-900'}`}>
-                <h3 className="font-bold mb-1 capitalize">{notification.type}</h3>
-                <p className="text-sm">{notification.message}</p>
-                <button onClick={() => setNotification(null)} className="absolute top-2 right-2 text-xl leading-none">&times;</button>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold mb-1 capitalize">{notification.type}</h3>
+                    <p className="text-sm">{notification.message}</p>
+                    {notification.action && (
+                      <button 
+                        onClick={() => {
+                          notification.action?.onClick();
+                          setNotification(null);
+                        }} 
+                        className="mt-2 text-sm font-bold bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md"
+                      >
+                        {notification.action.label}
+                      </button>
+                    )}
+                  </div>
+                  <button onClick={() => setNotification(null)} className="ml-4 text-xl leading-none flex-shrink-0">&times;</button>
+                </div>
             </div>
         )}
         
         <PromptsManager
             isOpen={isPromptsManagerOpen}
-            onClose={() => setIsPromptsManagerOpen(false)}
+            onClose={closePromptsManager}
             onApplyTemplate={handleApplyTemplate}
             setNotification={setNotification}
+            highlightId={highlightedTemplateId}
         />
 
         <div className={activeTab === Tab.Generate ? 'block h-full' : 'hidden'}>
@@ -183,6 +214,7 @@ const App: React.FC = () => {
               remixHint={remixHint}
               setRemixHint={setRemixHint}
               onApplyTemplate={handleApplyTemplate}
+              openPromptsManager={openPromptsManager}
             />
         </div>
         <div className={activeTab === Tab.Edit ? 'block h-full' : 'hidden'}>

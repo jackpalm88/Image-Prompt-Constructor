@@ -31,12 +31,13 @@ const StylePresetSelector: React.FC<StylePresetSelectorProps> = ({ templates, on
               <button
                 type="button"
                 onClick={() => onSelect(template)}
-                className={`pl-3 pr-2 py-1.5 text-sm font-semibold transition-colors duration-200 rounded-l-lg border-y border-l ${
+                className={`flex items-center pl-3 pr-2 py-1.5 text-sm font-semibold transition-colors duration-200 rounded-l-lg border-y border-l ${
                   isSelected
                     ? 'bg-doma-green text-white border-transparent'
                     : 'text-gray-700 group-hover:bg-gray-100 border-gray-200 group-hover:border-gray-300'
                 }`}
               >
+                {template.thumbnail && <img src={template.thumbnail} alt="thumbnail" className="w-6 h-6 rounded-sm object-cover mr-2" />}
                 {template.name}
               </button>
               <button
