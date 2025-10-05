@@ -24,11 +24,14 @@ export interface Template extends PromptData {
   favorite: boolean;
   pinned: boolean;
   usageCount: number;
+  renderSuccessCount: number;
   lastUsed: number;
   createdAt: number;
   updatedAt: number;
   signature: string;
   thumbnail?: string;
+  quality?: "Green" | "Amber" | "Red";
+  variantOf?: string;
 }
 
 export interface ImageFile {

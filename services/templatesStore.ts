@@ -4,6 +4,119 @@ import { STYLE_PRESETS } from '../constants';
 const TEMPLATES_KEY = 'doma-image-studio-templates';
 const OLD_PRESETS_KEY = 'nano-banana-presets'; // For migration
 
+// --- Search Index ---
+
+export type DocMeta = {
+  name: string;
+  quality: "Green" | "Amber" | "Red";
+  tags: string[];
+  category: string;
+  textLen: number;
+};
+
+export type BuiltIndex = {
+  term: Map<string, Set<string>>; // term -> Set<signature>
+  tag: Map<string, Set<string>>; // tag -> Set<signature>
+  cat: Map<string, Set<string>>; // category -> Set<signature>
+  meta: Map<string, DocMeta>; // signature -> DocMeta
+};
+
+let searchIndex: BuiltIndex | null = null;
+
+const STOPWORDS = new Set(['a', 'an', 'the', 'in', 'on', 'of', 'for', 'with', 'by', 'as', 'is', 'are', 'was', 'were', 'to', 'and', 'it', 'from', 'or', 'at', 'i', 'you', 'he', 'she', 'we', 'they']);
+
+export const tokenize = (text: string): string[] => {
+    const terms = text.toLowerCase().split(/\W+/);
+    return [...new Set(terms.filter(term => term && !STOPWORDS.has(term)))];
+};
+
+const add = (map: Map<string, Set<string>>, key: string, value: string) => {
+    if (!map.has(key)) {
+        // FIX: Explicitly type new Set() for type safety.
+        map.set(key, new Set<string>());
+    }
+    map.get(key)!.add(value);
+};
+
+const _addToIndex = (template: Template, index: BuiltIndex) => {
+    if (!template.signature) return;
+    const sig = template.signature;
+    const text = [template.subject, template.action, template.environment, template.style, template.lighting, template.camera].filter(Boolean).join(" ");
+    const terms = tokenize(text);
+    
+    for (const w of terms) add(index.term, w, sig);
+    for (const tg of (template.tags || [])) add(index.tag, tg.toLowerCase(), sig);
+    add(index.cat, (template.category || "uncategorized").toLowerCase(), sig);
+    
+    index.meta.set(sig, {
+        name: template.name,
+        quality: template.quality || "Amber", 
+        tags: template.tags || [], 
+        category: template.category || "uncategorized", 
+        textLen: text.length 
+    });
+};
+
+const _removeFromIndex = (template: Template, index: BuiltIndex) => {
+    if (!template.signature) return;
+    const sig = template.signature;
+
+    const text = [template.subject, template.action, template.environment, template.style, template.lighting, template.camera].filter(Boolean).join(" ");
+    const terms = tokenize(text);
+
+    for (const term of terms) {
+        const sigs = index.term.get(term);
+        if (sigs) {
+            sigs.delete(sig);
+            if (sigs.size === 0) index.term.delete(term);
+        }
+    }
+
+    for (const tag of (template.tags || [])) {
+        const lowerTag = tag.toLowerCase();
+        const sigs = index.tag.get(lowerTag);
+        if (sigs) {
+            sigs.delete(sig);
+            if (sigs.size === 0) index.tag.delete(lowerTag);
+        }
+    }
+
+    const lowerCat = (template.category || "uncategorized").toLowerCase();
+    const catSigs = index.cat.get(lowerCat);
+    if (catSigs) {
+        catSigs.delete(sig);
+        if (catSigs.size === 0) index.cat.delete(lowerCat);
+    }
+
+    index.meta.delete(sig);
+};
+
+
+export function buildIndex(templates: Template[]): BuiltIndex {
+  const index: BuiltIndex = { 
+      term: new Map<string, Set<string>>(), 
+      tag: new Map<string, Set<string>>(), 
+      cat: new Map<string, Set<string>>(), 
+      meta: new Map<string, DocMeta>() 
+  };
+  
+  for (const t of templates) {
+    if (!t.signature) continue;
+    _addToIndex(t, index);
+  }
+  return index;
+}
+
+const getSearchIndex = async (): Promise<BuiltIndex> => {
+    if (searchIndex) {
+        return searchIndex;
+    }
+    const templates = await getTemplates();
+    searchIndex = buildIndex(templates);
+    return searchIndex;
+};
+
+
 const emitTemplatesUpdated = () => {
     window.dispatchEvent(new CustomEvent('doma:templates-updated'));
 };
@@ -17,53 +130,37 @@ export type TemplateValidationInput = Partial<PromptData & { name: string; }>;
 
 export function validateTemplate(input: TemplateValidationInput): { ok: boolean; issues: string[]; quality: "Green" | "Amber" | "Red" } {
   const issues: string[] = [];
-  let isRed = false;
-
   const req = (s?: string) => !!s && s.trim().length > 0;
 
-  if (!req(input.name) || input.name!.trim().length < 3 || input.name!.trim().length > 60) {
-    issues.push("Name must be between 3 and 60 characters.");
-    isRed = true;
-  }
-  if (!req(input.subject) || input.subject!.trim().length > 300) {
-    issues.push("Subject is required and must be 300 characters or less.");
-    isRed = true;
-  }
+  if (!req(input.name) || input.name!.trim().length < 3 || input.name!.trim().length > 60)
+    issues.push("name: 3–60 chars required");
+  if (!req(input.subject) || input.subject!.trim().length > 300)
+    issues.push("subject: required, ≤300 chars");
 
   const filled = (["subject","action","environment","style","lighting","camera"] as (keyof PromptData)[])
     .filter(k => req(input[k])).length;
-  if (filled < 4) {
-    issues.push("At least 4 descriptive fields (subject, action, etc.) are required.");
-    isRed = true;
-  }
+  if (filled < 4) issues.push("at least 4 descriptive fields required");
 
   const text = [input.subject,input.action,input.environment,input.style,input.lighting,input.camera]
     .filter(Boolean).join(" ").toLowerCase();
-    
-  if (text.includes("soft studio lighting") && text.includes("high contrast")) {
-    issues.push("Lighting is contradictory ('soft studio' vs 'high contrast').");
-    isRed = true;
-  }
-
-  if (text.includes("very very") || text.includes("ultra ultra")) {
-    issues.push("Avoid double intensifiers (e.g., 'very very').");
-    // This is an amber issue if no red issues are present
-  }
+  if (text.includes("very very") || text.includes("ultra ultra"))
+    issues.push("remove double intensifiers (e.g., 'very very', 'ultra ultra')");
   
-  let quality: "Green" | "Amber" | "Red";
+  const hasContradiction = text.includes("soft studio lighting") && text.includes("high contrast");
+  if (hasContradiction) issues.push("lighting contradiction: 'soft' vs 'high contrast'");
 
-  if (isRed) {
-    quality = "Red";
-  } else if (issues.length > 0) {
-    quality = "Amber";
-  } else {
-    quality = "Green";
-  }
+  const isRed = 
+      !req(input.name) || (input.name?.trim().length ?? 0) < 3 || (input.name?.trim().length ?? 0) > 60 ||
+      !req(input.subject) || (input.subject?.trim().length ?? 0) > 300 ||
+      filled < 4 ||
+      hasContradiction;
 
+  const quality = isRed ? "Red" : (issues.length > 0 ? "Amber" : "Green");
+  
   return { ok: quality !== "Red", issues, quality };
 }
 
-export function normalizeTemplate(input: Partial<Template>): Omit<Template, 'id' | 'createdAt' | 'updatedAt' | 'usageCount' | 'lastUsed' | 'favorite' | 'pinned' | 'signature' | 'thumbnail'> {
+export function normalizeTemplate(input: Partial<Template>): Omit<Template, 'id' | 'createdAt' | 'updatedAt' | 'usageCount' | 'lastUsed' | 'favorite' | 'pinned' | 'signature' | 'thumbnail' | 'quality' | 'renderSuccessCount' | 'variantOf'> {
   return {
     name: singleSpace(input.name || ""),
     subject: lower(input.subject),
@@ -132,6 +229,7 @@ const convertOldPresetToTemplate = async (preset: { name: string, data: PromptDa
     
     const canonical = normalizeTemplate(data);
     const signature = await computeSignature(data);
+    const validation = validateTemplate(canonical);
 
     return {
         id: crypto.randomUUID(),
@@ -139,16 +237,19 @@ const convertOldPresetToTemplate = async (preset: { name: string, data: PromptDa
         favorite: false,
         pinned: options.pinned || false,
         usageCount: 0,
+        renderSuccessCount: 0,
         lastUsed: 0,
         createdAt: now,
         updatedAt: now,
         signature,
+        quality: validation.quality,
     };
 };
 
 const seedInitialTemplates = async (): Promise<Template[]> => {
     const initialTemplates = await Promise.all(STYLE_PRESETS.map(p => convertOldPresetToTemplate(p, { pinned: true })));
     saveAllTemplates(initialTemplates);
+    searchIndex = null; // Invalidate index after bulk change
     return initialTemplates;
 };
 
@@ -165,6 +266,7 @@ const migrateOldPresets = async (): Promise<Template[] | null> => {
                 const uniqueBySignature = Array.from(new Map(combined.map(t => [t.signature, t])).values());
 
                 saveAllTemplates(uniqueBySignature);
+                searchIndex = null; // Invalidate index after bulk change
                 localStorage.removeItem(OLD_PRESETS_KEY);
                 console.log(`Migrated ${oldPresets.length} old presets.`);
                 return uniqueBySignature;
@@ -178,8 +280,34 @@ const migrateOldPresets = async (): Promise<Template[] | null> => {
 
 // --- Public API ---
 export const getTemplates = async (): Promise<Template[]> => {
-    const templates = getRawTemplates();
+    let templates = getRawTemplates();
+
     if (templates.length > 0) {
+        // One-time migration for existing templates
+        let needsSave = false;
+        const migratedTemplates = templates.map(t => {
+            let template = { ...t };
+            if (typeof template.quality === 'undefined') {
+                needsSave = true;
+                const validation = validateTemplate(template);
+                template.quality = validation.quality;
+            }
+            if (typeof template.usageCount === 'undefined') {
+                needsSave = true;
+                template.usageCount = 0;
+            }
+            if (typeof template.renderSuccessCount === 'undefined') {
+                needsSave = true;
+                template.renderSuccessCount = 0;
+            }
+            return template;
+        });
+        if (needsSave) {
+            console.log("Running one-time migration to add new fields to templates.");
+            saveAllTemplates(migratedTemplates);
+            searchIndex = null; // Invalidate index after bulk change
+            return migratedTemplates;
+        }
         return templates;
     }
     
@@ -202,6 +330,7 @@ export const createTemplate = async (data: Partial<Omit<Template, 'id' | 'create
     
     const canonical = normalizeTemplate(data);
     const signature = await computeSignature(data);
+    const validation = validateTemplate(canonical);
 
     const newTemplate: Template = {
         id: crypto.randomUUID(),
@@ -209,12 +338,17 @@ export const createTemplate = async (data: Partial<Omit<Template, 'id' | 'create
         favorite: data.favorite || false,
         pinned: data.pinned || false,
         usageCount: data.usageCount || 0,
+        renderSuccessCount: data.renderSuccessCount || 0,
         lastUsed: data.lastUsed || 0,
         createdAt: now,
         updatedAt: now,
         signature,
-        thumbnail: data.thumbnail
+        thumbnail: data.thumbnail,
+        quality: validation.quality,
     };
+    if (searchIndex) {
+        _addToIndex(newTemplate, searchIndex);
+    }
     saveAllTemplates([...templates, newTemplate]);
     return newTemplate;
 };
@@ -225,26 +359,11 @@ export async function upsertTemplate(data: Partial<Omit<Template, 'id'>>): Promi
     
     const canonical = normalizeTemplate(data);
     const signature = await computeSignature(data);
+    const validation = validateTemplate(canonical);
     
-    const existing = templates.find(t => t.signature === signature);
+    const existingIndex = templates.findIndex(t => t.signature === signature);
 
-    if (existing) {
-        // UPDATE logic: merge tags, update timestamp, preserve original creation date
-        const mergedTags = Array.from(new Set([...(existing.tags || []), ...(canonical.tags || [])])).sort();
-        
-        const updatedTemplate: Template = {
-            ...existing,
-            ...canonical, // Overwrite name, category etc. with new normalized values.
-            tags: mergedTags,
-            updatedAt: now,
-            thumbnail: data.thumbnail !== undefined ? data.thumbnail : existing.thumbnail,
-        };
-        
-        const newTemplates = templates.map(t => t.id === existing.id ? updatedTemplate : t);
-        saveAllTemplates(newTemplates);
-        
-        return { status: "updated", template: updatedTemplate };
-    } else {
+    if (existingIndex === -1) {
         // CREATE logic
         const newTemplate: Template = {
             id: crypto.randomUUID(),
@@ -252,50 +371,97 @@ export async function upsertTemplate(data: Partial<Omit<Template, 'id'>>): Promi
             favorite: data.favorite || false,
             pinned: data.pinned || false,
             usageCount: 0,
+            renderSuccessCount: 0,
             lastUsed: 0,
             createdAt: now,
             updatedAt: now,
             signature,
             thumbnail: data.thumbnail,
+            quality: validation.quality,
+            variantOf: data.variantOf,
         };
         
+        if (searchIndex) {
+            _addToIndex(newTemplate, searchIndex);
+        }
         saveAllTemplates([...templates, newTemplate]);
         return { status: "created", template: newTemplate };
+    } else {
+        // UPDATE logic: merge tags, update timestamp, preserve original creation date
+        const existing = templates[existingIndex];
+        const mergedTags = Array.from(new Set([...(existing.tags || []), ...(canonical.tags || [])])).sort().slice(0,10);
+        
+        const updatedTemplate: Template = {
+            ...existing, // preserve id, createdAt, usageCount, favorite, pinned, renderSuccessCount
+            ...canonical, // Overwrite name, category etc. with new normalized values.
+            tags: mergedTags,
+            updatedAt: now,
+            thumbnail: data.thumbnail !== undefined ? data.thumbnail : existing.thumbnail,
+            quality: validation.quality,
+            variantOf: data.variantOf !== undefined ? data.variantOf : existing.variantOf,
+        };
+        
+        if (searchIndex) {
+            _removeFromIndex(existing, searchIndex);
+            _addToIndex(updatedTemplate, searchIndex);
+        }
+        
+        const newTemplates = [...templates];
+        newTemplates[existingIndex] = updatedTemplate;
+        saveAllTemplates(newTemplates);
+        
+        return { status: "updated", template: updatedTemplate };
     }
 }
 
 export const updateTemplate = async (id: string, updates: Partial<Omit<Template, 'id' | 'createdAt'>>): Promise<Template | null> => {
     const templates = await getTemplates();
-    let updatedTemplate: Template | null = null;
-    
-    const newTemplates = await Promise.all(templates.map(async t => {
-        if (t.id === id) {
-            const base = { ...t, ...updates };
-            const canonical = normalizeTemplate(base);
-            const signature = await computeSignature(base);
+    const templateIndex = templates.findIndex(t => t.id === id);
 
-            updatedTemplate = { 
-                ...t, // preserve original id, createdAt, etc.
-                ...canonical, 
-                ...updates, // apply other updates like favorite/pinned
-                signature,
-                updatedAt: Date.now() 
-            };
-            return updatedTemplate;
-        }
-        return t;
-    }));
-
-    if(updatedTemplate) {
-        saveAllTemplates(newTemplates);
+    if (templateIndex === -1) {
+        return null;
     }
+
+    const oldTemplate = templates[templateIndex];
+    const base = { ...oldTemplate, ...updates };
+    const canonical = normalizeTemplate(base);
+    const signature = await computeSignature(base);
+    const validation = validateTemplate(canonical);
+
+    const updatedTemplate: Template = {
+        ...oldTemplate,
+        ...canonical,
+        ...updates,
+        signature,
+        updatedAt: Date.now(),
+        quality: validation.quality,
+    };
+    
+    if (searchIndex) {
+        // Re-index even if signature is same, as tags or other non-signature meta may have changed.
+        _removeFromIndex(oldTemplate, searchIndex);
+        _addToIndex(updatedTemplate, searchIndex);
+    }
+
+    templates[templateIndex] = updatedTemplate;
+    saveAllTemplates(templates);
+
     return updatedTemplate;
 };
 
 export const deleteTemplate = async (id: string): Promise<void> => {
     const templates = await getTemplates();
+    
+    if (searchIndex) {
+        const templateToDelete = templates.find(t => t.id === id);
+        if (templateToDelete) {
+            _removeFromIndex(templateToDelete, searchIndex);
+        }
+    }
+
     const newTemplates = templates.filter(t => t.id !== id);
     saveAllTemplates(newTemplates);
+    emitTemplatesUpdated();
 };
 
 export const getPinnedTemplates = async (): Promise<Template[]> => {
@@ -303,13 +469,23 @@ export const getPinnedTemplates = async (): Promise<Template[]> => {
     return templates.filter(t => t.pinned).sort((a,b) => a.name.localeCompare(b.name));
 };
 
-export const incrementUsage = async (id: string): Promise<void> => {
+export const applyTemplate = async (signature: string): Promise<void> => {
     const templates = await getTemplates();
-    const template = templates.find(t => t.id === id);
+    const template = templates.find(t => t.signature === signature);
     if (template) {
-        await updateTemplate(id, {
+        await updateTemplate(template.id, {
             usageCount: (template.usageCount || 0) + 1,
             lastUsed: Date.now(),
+        });
+    }
+};
+
+export const recordSuccess = async (signature: string): Promise<void> => {
+    const templates = await getTemplates();
+    const template = templates.find(t => t.signature === signature);
+    if (template) {
+        await updateTemplate(template.id, {
+            renderSuccessCount: (template.renderSuccessCount || 0) + 1,
         });
     }
 };
@@ -342,6 +518,7 @@ export const importTemplates = async (jsonString: string): Promise<{ success: bo
             if (!existingSignatures.has(signature)) {
                  const now = Date.now();
                  const canonical = normalizeTemplate(t);
+                 const validation = validateTemplate(canonical);
                  newTemplates.push({
                     ...t,
                     ...canonical,
@@ -349,10 +526,12 @@ export const importTemplates = async (jsonString: string): Promise<{ success: bo
                     favorite: t.favorite || false,
                     pinned: t.pinned || false,
                     usageCount: t.usageCount || 0,
+                    renderSuccessCount: t.renderSuccessCount || 0,
                     lastUsed: t.lastUsed || 0,
                     createdAt: t.createdAt || now,
                     updatedAt: now,
                     signature: signature,
+                    quality: validation.quality,
                 } as Template);
                 existingSignatures.add(signature); // Avoid importing duplicates from the same file
             }
@@ -360,6 +539,7 @@ export const importTemplates = async (jsonString: string): Promise<{ success: bo
 
         if (newTemplates.length > 0) {
             saveAllTemplates([...existingTemplates, ...newTemplates]);
+            searchIndex = null; // Invalidate index after bulk import
             importedCount = newTemplates.length;
         }
 
@@ -409,32 +589,220 @@ export function saveTemplateFromPromptData(pd: PromptData, opts: {
   return upsertTemplate(templateData);
 }
 
+export async function createVariant(
+  parentSignature: string,
+  patch: Partial<Pick<Template, "style" | "lighting" | "environment" | "camera">>
+): Promise<{ status: "created" | "updated"; template: Template } | { status: "error"; error: string }> {
+  const parent = await findTemplateBySignature(parentSignature);
+  if (!parent) {
+    return { status: "error", error: "Parent template not found." };
+  }
+
+  const allowedPatch: Partial<Template> = {};
+  if (patch.style !== undefined) allowedPatch.style = patch.style;
+  if (patch.lighting !== undefined) allowedPatch.lighting = patch.lighting;
+  if (patch.environment !== undefined) allowedPatch.environment = patch.environment;
+  if (patch.camera !== undefined) allowedPatch.camera = patch.camera;
+
+  const variantCandidate: Partial<Omit<Template, 'id'>> = {
+    ...parent,
+    ...allowedPatch,
+    name: `${parent.name} • Var`,
+    variantOf: parent.signature,
+    favorite: false,
+    pinned: false,
+    usageCount: 0,
+    renderSuccessCount: 0,
+    thumbnail: undefined,
+  };
+
+  const { status, template } = await upsertTemplate(variantCandidate);
+  return { status, template };
+}
+
+
 // --- Bulk Actions ---
 export const deleteManyTemplates = async (ids: string[]): Promise<void> => {
     const idSet = new Set(ids);
     const templates = await getTemplates();
+
+    if (searchIndex) {
+        templates.forEach(t => {
+            if (idSet.has(t.id)) {
+                _removeFromIndex(t, searchIndex);
+            }
+        });
+    }
+
     const newTemplates = templates.filter(t => !idSet.has(t.id));
     saveAllTemplates(newTemplates);
+    emitTemplatesUpdated();
 };
 
-// Fix: Add 'updates' parameter and implement logic to re-compute signature on change.
 export const updateManyTemplates = async (ids: string[], updates: Partial<Template>): Promise<void> => {
     const idSet = new Set(ids);
     const templates = await getTemplates();
-    const newTemplates = await Promise.all(templates.map(async t => {
+    const updatedTemplates = [...templates];
+
+    for (let i = 0; i < updatedTemplates.length; i++) {
+        const t = updatedTemplates[i];
         if (idSet.has(t.id)) {
-            const base = { ...t, ...updates };
+            const oldTemplate = t;
+
+            const base = { ...oldTemplate, ...updates };
             const canonical = normalizeTemplate(base);
             const signature = await computeSignature(base);
-            return {
-                ...t,
+            const validation = validateTemplate(canonical);
+            
+            const updatedTemplate = {
+                ...oldTemplate,
                 ...canonical,
                 ...updates,
                 signature,
-                updatedAt: Date.now()
+                updatedAt: Date.now(),
+                quality: validation.quality,
             };
+            
+            if (searchIndex) {
+                _removeFromIndex(oldTemplate, searchIndex);
+                _addToIndex(updatedTemplate, searchIndex);
+            }
+            updatedTemplates[i] = updatedTemplate;
         }
-        return t;
-    }));
-    saveAllTemplates(newTemplates);
+    }
+    
+    saveAllTemplates(updatedTemplates);
 };
+
+// --- New Search Function ---
+
+export interface SearchOptions {
+    q?: string;
+    tags?: string[];
+    category?: string;
+    minQuality?: "Green" | "Amber";
+}
+
+export interface SearchResult {
+    template: Template;
+    score: number;
+}
+
+export const searchTemplates = async (options: SearchOptions, allTemplates: Template[]): Promise<SearchResult[]> => {
+    const { q = '', tags = [], category, minQuality } = options;
+    const qTerms = tokenize(q);
+
+    const index = await getSearchIndex();
+    const templateMap = new Map(allTemplates.map(t => [t.signature, t]));
+
+    let candidateSigs: Set<string>;
+    const hasQuery = qTerms.length > 0 || tags.length > 0 || (category && category !== 'All');
+
+    if (!hasQuery) {
+        candidateSigs = new Set(index.meta.keys());
+    } else {
+        // FIX: Explicitly type new Set() to avoid type inference issues.
+        candidateSigs = new Set<string>();
+        qTerms.forEach(term => index.term.get(term)?.forEach(sig => candidateSigs.add(sig)));
+        tags.forEach(tag => index.tag.get(tag.toLowerCase())?.forEach(sig => candidateSigs.add(sig)));
+        
+        if (tags.length > 0 && qTerms.length === 0 && (!category || category === 'All')) {
+            // If only tags are selected, we start with the first tag's hits and intersect with the rest.
+            // FIX: Explicitly type new Set() to avoid type inference issues.
+            const tagHits = tags.map(t => index.tag.get(t.toLowerCase()) || new Set<string>());
+            if (tagHits.length > 0) {
+                candidateSigs = new Set(tagHits[0]);
+                for(let i=1; i < tagHits.length; i++) {
+                    candidateSigs = new Set([...candidateSigs].filter(sig => tagHits[i].has(sig)));
+                }
+            }
+        }
+
+        if (category && category !== 'All') {
+            // FIX: Explicitly type new Set() to avoid type inference issues.
+            const catHits = index.cat.get(category.toLowerCase()) || new Set<string>();
+            if (qTerms.length > 0 || tags.length > 0) {
+                 candidateSigs = new Set([...candidateSigs].filter(sig => catHits.has(sig)));
+            } else {
+                candidateSigs = catHits;
+            }
+        }
+    }
+
+    const results: SearchResult[] = [];
+    
+    let avgTextLen = 0;
+    if (index.meta.size > 0) {
+        let totalLen = 0;
+        index.meta.forEach(m => totalLen += m.textLen);
+        avgTextLen = totalLen / index.meta.size;
+    }
+
+    for (const sig of candidateSigs) {
+        const meta = index.meta.get(sig);
+        const template = templateMap.get(sig);
+        if (!meta || !template) continue;
+        
+        if (minQuality === "Green" && meta.quality !== "Green") continue;
+        if (minQuality === "Amber" && meta.quality === "Red") continue;
+        
+        // Scoring
+        let textMatch = 0;
+        if (qTerms.length > 0) {
+            const templateText = [meta.name, template.subject, template.action, template.environment, template.style, template.lighting, template.camera].filter(Boolean).join(" ");
+            const templateTokens = new Set(tokenize(templateText));
+            let matchedTerms = 0;
+            qTerms.forEach(term => {
+                if (templateTokens.has(term)) matchedTerms++;
+            });
+            textMatch = matchedTerms / qTerms.length;
+            if (meta.textLen < avgTextLen) textMatch += 0.05;
+        } else if (hasQuery) {
+            textMatch = 1.0;
+        }
+        
+        const tagMatch = tags.reduce((acc, tag) => {
+            return meta.tags.map(t => t.toLowerCase()).includes(tag.toLowerCase()) ? acc + 0.1 : acc;
+        }, 0);
+        
+        const categoryBoost = (category && category !== 'All' && meta.category.toLowerCase() === category.toLowerCase()) ? 0.1 : 0;
+        const qualityBoost = meta.quality === "Green" ? 0.1 : meta.quality === "Amber" ? 0.05 : 0;
+        
+        const score = Math.max(0, Math.min(1, 
+            (textMatch * 0.6) + 
+            (Math.min(0.3, tagMatch) * 0.2) + 
+            (categoryBoost * 0.1) + 
+            (qualityBoost * 0.1)
+        ));
+
+        if (score >= 0.15) {
+            results.push({ template, score });
+        }
+    }
+    
+    results.sort((a,b) => b.score - a.score);
+    return results.slice(0, 50);
+};
+
+export type BestOfResult = {
+    template: Template;
+    score: number;
+};
+
+export async function getBestOf(limit = 20, minUses = 1): Promise<BestOfResult[]> {
+    const all = (await getTemplates()).filter(t => (t.usageCount || 0) >= minUses);
+    if (all.length === 0) return [];
+    
+    const maxU = Math.max(1, ...all.map(t => t.usageCount || 0));
+    const maxS = Math.max(1, ...all.map(t => t.renderSuccessCount || 0));
+    const qW = (q?: "Green" | "Amber" | "Red") => q === "Green" ? 1 : q === "Amber" ? 0.6 : 0.2;
+
+    const results = all.map(t => {
+        const usageN = (t.usageCount || 0) / maxU;
+        const succN = (t.renderSuccessCount || 0) / maxS;
+        const score = 0.6 * succN + 0.3 * usageN + 0.1 * qW(t.quality);
+        return { template: t, score };
+    }).sort((a, b) => b.score - a.score).slice(0, limit);
+
+    return results;
+}

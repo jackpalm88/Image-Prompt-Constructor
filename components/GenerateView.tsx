@@ -1,11 +1,9 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { PromptData, ImageFile, Template } from '../types';
 import { generateImage, fileToBase64, generateFullPromptIdea, remixPromptIdea } from '../services/geminiService';
 import * as templatesStore from '../services/templatesStore';
 import Spinner from './Spinner';
-import { DownloadIcon, WarningIcon, SaveIcon, LightbulbIcon, ShuffleIcon, DocumentAddIcon, TrashIcon } from './icons';
+import { DownloadIcon, WarningIcon, SaveIcon, LightbulbIcon, ShuffleIcon, DocumentAddIcon, TrashIcon, ThumbsUpIcon } from './icons';
 import ImageViewer from './ImageViewer';
 import { QUICK_SELECT_OPTIONS } from '../constants';
 import StylePresetSelector from './StylePresetSelector';
@@ -58,6 +56,7 @@ const GenerateView: React.FC<GenerateViewProps> = ({
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [pinnedTemplates, setPinnedTemplates] = useState<Template[]>([]);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [lastGeneratedSignature, setLastGeneratedSignature] = useState<string | null>(null);
 
   useEffect(() => {
     const refreshPinnedTemplates = async () => {
@@ -114,7 +113,7 @@ const GenerateView: React.FC<GenerateViewProps> = ({
 
   const handlePresetSelect = async (template: Template) => {
       onApplyTemplate(template);
-      await templatesStore.incrementUsage(template.id);
+      await templatesStore.applyTemplate(template.signature);
   };
   
   const handleSaveAsTemplate = () => {
@@ -231,6 +230,7 @@ const GenerateView: React.FC<GenerateViewProps> = ({
     setIsGenerating(true);
     setNotification(null);
     setResultImage(null);
+    setLastGeneratedSignature(null);
     try {
       const compiledPrompt = `Subject: ${promptData.subject}. Action: ${promptData.action}. Environment: ${promptData.environment}. Style: ${promptData.style}. Lighting: ${promptData.lighting}. Camera: ${promptData.camera}.`;
       const imageUrl = await generateImage(promptData, subjectImage, environmentImage);
@@ -241,6 +241,10 @@ const GenerateView: React.FC<GenerateViewProps> = ({
       if (environmentImage) inputImages.push(environmentImage.preview);
 
       addHistoryItem(imageUrl, compiledPrompt, inputImages.length > 0 ? inputImages : [], promptData);
+
+      const signature = await templatesStore.computeSignature(promptData);
+      setLastGeneratedSignature(signature);
+
     } catch (err) {
       setNotification({ type: 'error', message: (err as Error).message });
     } finally {
@@ -258,6 +262,17 @@ const GenerateView: React.FC<GenerateViewProps> = ({
     document.body.removeChild(link);
   };
 
+  const handleGoodResult = async () => {
+    if (!lastGeneratedSignature) return;
+    try {
+        await templatesStore.recordSuccess(lastGeneratedSignature);
+        setNotification({ type: 'success', message: 'Thanks for the feedback! Success recorded.' });
+        setLastGeneratedSignature(null); // Prevent multiple clicks
+    } catch (err) {
+        setNotification({ type: 'error', message: (err as Error).message });
+    }
+  };
+
   const handleClearFields = () => {
     setPromptData({
       subject: '', action: '', environment: '',
@@ -272,6 +287,7 @@ const GenerateView: React.FC<GenerateViewProps> = ({
     });
     setRemixHint('');
     setResultImage(null);
+    setLastGeneratedSignature(null);
     setNotification({ type: 'success', message: 'All fields have been cleared.' });
   };
 
@@ -409,6 +425,16 @@ const GenerateView: React.FC<GenerateViewProps> = ({
                             <DownloadIcon className="h-5 w-5" />
                             <span>Download</span>
                         </button>
+                        {lastGeneratedSignature && (
+                            <button 
+                                onClick={handleGoodResult} 
+                                className="flex items-center space-x-2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-xl transition duration-300 shadow-md"
+                                title="Mark this generation as a successful result for the prompt"
+                            >
+                                <ThumbsUpIcon className="h-5 w-5" />
+                                <span>Good Result</span>
+                            </button>
+                        )}
                      </div>
                      <div className="flex items-center p-3 rounded-lg bg-yellow-100/80 text-yellow-900 text-sm border border-yellow-300/50">
                         <WarningIcon className="h-5 w-5 mr-2 flex-shrink-0"/>

@@ -78,7 +78,8 @@ export const generateImage = async (promptData: PromptData, subjectImage: ImageF
         
         try {
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image-preview',
+                // FIX: Updated deprecated model name
+                model: 'gemini-2.5-flash-image',
                 contents: { parts },
                 config: {
                     responseModalities: [Modality.IMAGE, Modality.TEXT],
@@ -333,7 +334,8 @@ Constraints:
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
+            // FIX: Updated deprecated model name
+            model: 'gemini-2.5-flash-image',
             contents: {
                 parts: [
                     { inlineData: { data: base64Image, mimeType } },
@@ -370,7 +372,8 @@ Instructions: ${composePrompt}
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
+            // FIX: Updated deprecated model name
+            model: 'gemini-2.5-flash-image',
             contents: { parts },
             config: {
                 responseModalities: [Modality.IMAGE, Modality.TEXT],
