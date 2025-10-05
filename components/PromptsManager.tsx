@@ -476,7 +476,8 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                                                         <div className="flex items-center space-x-2 flex-shrink-0">
                                                             {warnings.length > 0 && <div className="relative group"><WarningIcon className="h-5 w-5 text-yellow-500" /><div className="absolute bottom-full mb-2 -right-2 w-64 bg-black text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"><ul className="list-disc list-inside">{warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></div></div>}
                                                             <button onClick={() => handleToggleFavorite(t)} title={t.favorite ? "Unfavorite" : "Favorite"} className={t.favorite ? 'text-yellow-500' : 'text-gray-400 hover:text-yellow-500'}>
-                                                                <SparklesIcon className="h-5 w-5" style={{fill: t.favorite ? 'currentColor' : 'none'}}/>
+                                                                {/* FIX: Replaced unsupported `style` prop with `fill` prop for dynamic coloring. */}
+                                                                <SparklesIcon className="h-5 w-5" fill={t.favorite ? 'currentColor' : 'none'}/>
                                                             </button>
                                                             <button onClick={() => handleTogglePin(t)} title={t.pinned ? "Unpin" : "Pin to Quick Access"} className={t.pinned ? 'text-doma-red' : 'text-gray-400 hover:text-doma-red'}>
                                                                 {t.pinned ? <PinIcon className="h-5 w-5"/> : <PinOffIcon className="h-5 w-5"/>}
