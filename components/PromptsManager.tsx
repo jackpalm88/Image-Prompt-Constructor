@@ -458,7 +458,7 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                         </div>
                         <div className="flex-grow p-4 overflow-y-auto">
                             {processedTemplates.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 content-start">
                                     {processedTemplates.map(({template: t, score}) => {
                                         const warnings = getTemplateWarnings(t);
                                         const isHighlighted = t.id === highlightId;
@@ -467,10 +467,10 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                                             <div className="p-4 flex-grow flex gap-4">
                                                 <input type="checkbox" className="mt-1" checked={selectedIds.has(t.id)} onChange={() => handleSelect(t.id)} />
                                                 {t.thumbnail && <img src={t.thumbnail} alt="thumbnail" className="w-20 h-20 object-cover rounded-md flex-shrink-0" />}
-                                                <div className="flex-grow">
+                                                <div className="flex-grow min-w-0">
                                                     <div className="flex justify-between items-start">
                                                         <h4 className="font-bold text-doma-dark-gray mb-1 pr-2 flex-grow flex items-center gap-2">
-                                                            <span>{t.name}</span>
+                                                            <span className="truncate" title={t.name}>{t.name}</span>
                                                             <LintScoreBadge quality={t.quality || 'Amber'} />
                                                         </h4>
                                                         <div className="flex items-center space-x-2 flex-shrink-0">
@@ -479,7 +479,7 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                                                                 {/* FIX: Replaced unsupported `style` prop with `fill` prop for dynamic coloring. */}
                                                                 <SparklesIcon className="h-5 w-5" fill={t.favorite ? 'currentColor' : 'none'}/>
                                                             </button>
-                                                            <button onClick={() => handleTogglePin(t)} title={t.pinned ? "Unpin" : "Pin to Quick Access"} className={t.pinned ? 'text-doma-red' : 'text-gray-400 hover:text-doma-red'}>
+                                                            <button onClick={() => handleTogglePin(t)} title={t.pinned ? "Unpin" : "Pin to Quick Access"} className={t.pinned ? 'text-doma-yellow' : 'text-gray-400 hover:text-doma-yellow'}>
                                                                 {t.pinned ? <PinIcon className="h-5 w-5"/> : <PinOffIcon className="h-5 w-5"/>}
                                                             </button>
                                                         </div>
@@ -488,7 +488,7 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                                                         <span>{t.category || 'Uncategorized'}</span>
                                                         {score > 0 && <span className="font-mono text-gray-400" title="Relevance Score">{score.toFixed(2)}</span>}
                                                     </div>
-                                                    <p className="text-sm text-gray-600 line-clamp-2 mb-2" title={t.subject}>{t.subject}</p>
+                                                    <p className="text-sm text-gray-600 line-clamp-2 mb-2 break-words" title={t.subject}>{t.subject}</p>
                                                     <p className="text-xs text-gray-400 font-mono">
                                                         Usage: {t.usageCount || 0} &bull; Success: {t.renderSuccessCount || 0}
                                                     </p>
@@ -501,13 +501,13 @@ const PromptsManager: React.FC<PromptsManagerProps> = ({ isOpen, onClose, onAppl
                                                     <button
                                                       type="button"
                                                       onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
-                                                      className="p-1 rounded-full hover:bg-red-50 text-gray-500 hover:text-doma-red"
+                                                      className="p-1 rounded-full hover:bg-red-50 text-gray-500 hover:text-red-600"
                                                       title="Delete"
                                                     >
                                                       <TrashIcon className="h-4 w-4" />
                                                     </button>
                                                 </div>
-                                                <button onClick={() => handleApply(t)} className="bg-doma-red text-white font-bold py-1.5 px-4 text-sm rounded-xl hover:bg-red-800 transition-colors">Apply</button>
+                                                <button onClick={() => handleApply(t)} className="bg-doma-green text-white font-bold py-1.5 px-4 text-sm rounded-xl hover:bg-opacity-90 transition-colors">Apply</button>
                                             </div>
                                         </div>
                                     )})}

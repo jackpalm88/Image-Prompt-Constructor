@@ -80,7 +80,7 @@ const HistoryDetailModal: React.FC<HistoryDetailModalProps> = ({ item, onClose, 
                         Copy Prompt
                     </button>
                     {item.promptData && (
-                        <button onClick={handleUse} className="bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md">
+                        <button onClick={handleUse} className="bg-doma-green hover:bg-opacity-90 text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md">
                             Use this Prompt
                         </button>
                     )}

@@ -110,7 +110,7 @@ const EditView: React.FC<EditViewProps> = ({ setNotification, addHistoryItem, im
                     <textarea id="keep-prompt" value={keepPrompt} onChange={e => setKeepPrompt(e.target.value)} rows={2} className="w-full bg-white border border-gray-300 rounded-lg shadow-inner-soft p-2 text-doma-dark-gray focus:ring-2 focus:ring-doma-yellow/50 focus:border-doma-green" placeholder="e.g., the background" />
                 </div>
                 <div className="flex space-x-4">
-                    <button onClick={handleSubmit} disabled={isEditing} className="flex-grow bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg-doma disabled:opacity-50 disabled:cursor-not-allowed">Apply Edit</button>
+                    <button onClick={handleSubmit} disabled={isEditing} className="flex-grow bg-doma-green hover:bg-opacity-90 text-white font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg-doma disabled:opacity-50 disabled:cursor-not-allowed">Apply Edit</button>
                 </div>
             </div>
         )}

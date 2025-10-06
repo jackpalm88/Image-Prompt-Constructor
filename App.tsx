@@ -136,7 +136,7 @@ const App: React.FC = () => {
           <div className="flex items-center space-x-2">
             <button
                 onClick={() => openPromptsManager()}
-                className="flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-red bg-white/50 text-doma-dark-gray hover:bg-white border border-black/5 shadow-sm"
+                className="flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-yellow bg-white/50 text-doma-dark-gray hover:bg-white border border-black/5 shadow-sm"
               >
                 <PromptsIcon className="h-5 w-5 mr-0 md:mr-2" />
                 <span className="hidden md:inline">Prompts</span>
@@ -146,7 +146,7 @@ const App: React.FC = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-red ${
+                  className={`flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-yellow ${
                     activeTab === tab.id
                       ? 'bg-doma-green text-white shadow-md'
                       : 'text-doma-dark-gray hover:bg-white/50'

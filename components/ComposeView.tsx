@@ -104,7 +104,7 @@ const ComposeView: React.FC<ComposeViewProps> = ({ setNotification, addHistoryIt
             <label htmlFor="compose-prompt" className="block text-sm font-medium text-gray-700">2. Describe how to combine them</label>
             <textarea id="compose-prompt" value={composePrompt} onChange={e => setComposePrompt(e.target.value)} rows={4} className="w-full bg-white border border-gray-300 rounded-lg shadow-inner-soft p-2 text-doma-dark-gray focus:ring-2 focus:ring-doma-yellow/50 focus:border-doma-green" placeholder="e.g., place the cat from image 1 into the scene from image 2." />
         </div>
-        <button onClick={handleSubmit} disabled={isComposing} className="w-full bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg-doma disabled:opacity-50 disabled:cursor-not-allowed">Compose Image</button>
+        <button onClick={handleSubmit} disabled={isComposing} className="w-full bg-doma-green hover:bg-opacity-90 text-white font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg-doma disabled:opacity-50 disabled:cursor-not-allowed">Compose Image</button>
       </div>
       <div className="bg-white/50 rounded-2xl flex flex-col justify-center p-4 min-h-[400px] lg:min-h-0 border border-black/5 shadow-lg-doma">
         {isComposing ? <Spinner message="Composing images..." /> :

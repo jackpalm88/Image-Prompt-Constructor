@@ -69,7 +69,7 @@ const CreateVariantModal: React.FC<CreateVariantModalProps> = ({ parentTemplate,
           <button onClick={onClose} disabled={isLoading} className="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 rounded-xl transition-colors border border-gray-300 shadow-sm disabled:opacity-50">
             Cancel
           </button>
-          <button onClick={handleCreate} disabled={isLoading} className="bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md disabled:opacity-50 flex items-center gap-2">
+          <button onClick={handleCreate} disabled={isLoading} className="bg-doma-green hover:bg-opacity-90 text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md disabled:opacity-50 flex items-center gap-2">
             {isLoading && <MiniSpinner />}
             {isLoading ? 'Creating...' : 'Create Variant'}
           </button>

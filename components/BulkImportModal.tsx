@@ -74,7 +74,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ onClose, onImport, se
                     <button onClick={onClose} disabled={isParsing} className="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 rounded-xl transition-colors border border-gray-300 shadow-sm disabled:opacity-50">
                         Cancel
                     </button>
-                    <button onClick={handleImport} disabled={isParsing} className="bg-gradient-to-br from-doma-red to-red-800 hover:from-red-800 hover:to-doma-red text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md disabled:opacity-50">
+                    <button onClick={handleImport} disabled={isParsing} className="bg-doma-green hover:bg-opacity-90 text-white font-bold py-2 px-4 rounded-xl transition-colors shadow-md disabled:opacity-50">
                         {isParsing ? 'Parsing...' : 'Import & Save Templates'}
                     </button>
                 </div>
