@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Figma OAuth · D.O.M.A</title>
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #020617;
+        color: #f8fafc;
+      }
+      .card {
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 16px;
+        padding: 32px;
+        width: min(420px, 90vw);
+        text-align: center;
+        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.4);
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(99, 102, 241, 0.25);
+        border-top-color: rgba(99, 102, 241, 0.9);
+        border-radius: 50%;
+        margin: 0 auto 16px;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1>Connecting to Figma…</h1>
+      <p id="status" style="margin-top: 12px; font-size: 0.9rem; color: rgba(226, 232, 240, 0.8);"></p>
+    </div>
+    <script>
+      (async () => {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const statusEl = document.getElementById('status');
+        const sendMessage = (payload) => {
+          if (window.opener) {
+            window.opener.postMessage(payload, window.location.origin);
+          }
+        };
+        if (!code || !state) {
+          statusEl.textContent = 'Missing authorization code. Please close this window and try again.';
+          sendMessage({ type: 'figma-oauth-complete', success: false, error: 'Missing authorization code.' });
+          return;
+        }
+        try {
+          const storedAuth = localStorage.getItem('ipc-auth');
+          const headers = { 'Content-Type': 'application/json' };
+          if (storedAuth) {
+            try {
+              const parsed = JSON.parse(storedAuth);
+              if (parsed?.token) {
+                headers['Authorization'] = `Bearer ${parsed.token}`;
+              }
+            } catch (error) {
+              console.warn('Failed to parse stored auth', error);
+            }
+          }
+          statusEl.textContent = 'Finalizing authorization…';
+          const response = await fetch('/api/figma/oauth/callback', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ code, state }),
+          });
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            const message = errorBody?.error || 'Authorization failed.';
+            statusEl.textContent = message;
+            sendMessage({ type: 'figma-oauth-complete', success: false, error: message });
+          } else {
+            statusEl.textContent = 'Connected! This window will close automatically.';
+            sendMessage({ type: 'figma-oauth-complete', success: true });
+            setTimeout(() => window.close(), 1200);
+          }
+        } catch (error) {
+          console.error(error);
+          const message = error instanceof Error ? error.message : 'Unexpected error during OAuth.';
+          statusEl.textContent = message;
+          sendMessage({ type: 'figma-oauth-complete', success: false, error: message });
+        }
+      })();
+    </script>
+  </body>
+</html>

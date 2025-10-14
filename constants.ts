@@ -5,6 +5,8 @@ export const TABS = [
   { id: Tab.Edit, label: 'Edit' },
   { id: Tab.Compose, label: 'Compose' },
   { id: Tab.History, label: 'History' },
+  { id: Tab.Team, label: 'Team' },
+  { id: Tab.Billing, label: 'Billing' },
 ];
 
 export const STYLE_PRESETS: { name: string; data: PromptData }[] = [
