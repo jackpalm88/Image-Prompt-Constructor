@@ -12,7 +12,8 @@ export function buildIndex(templates: Template[]): BuiltIndex {
   const idx: BuiltIndex = { term:new Map(), tag:new Map(), cat:new Map(), meta:new Map() };
   const add = (m:Map<string,Set<string>>, k:string, sig:string) => {
     const key = k.toLowerCase();
-    if (!m.has(key)) m.set(key, new Set());
+    // FIX: Explicitly type new Set() to avoid type inference issues.
+    if (!m.has(key)) m.set(key, new Set<string>());
     m.get(key)!.add(sig);
   };
 

@@ -282,14 +282,18 @@ export const remixPromptIdea = async (currentPrompt: PromptData, lockedFields: R
         .filter(([, isLocked]) => isLocked)
         .map(([key]) => key as keyof PromptData);
 
-    let promptText = `You are a creative assistant for an image generation tool.
-You will be given a JSON object describing an existing scene.
-Your task is to generate a new, creative, and coherent scene idea that is a variation or continuation of the original.
-For example, you could change the time of day, the camera angle, the subject's action, or describe what happens next in the story.
-Do not just copy the original prompt. Create something new inspired by it.
-Fill out all fields in the provided JSON schema.
+    let promptText = `You are a creative assistant for a cinematic image generation tool.
+You will be given a JSON object describing an existing scene, as if it's a single frame from a film.
+Your task is to generate a new, coherent scene description for the VERY NEXT shot, imagining what happens approximately 5 seconds later in the story.
 
-Original Scene:
+- **Maintain Continuity:** The subject, environment, and overall style should remain consistent with the original scene unless a specific change is requested.
+- **Logical Progression:** The 'action' should be a natural continuation of the previous one.
+- **Subtle Changes:** You might subtly alter the camera angle or lighting to reflect the passage of a few seconds, but avoid drastic jumps. For example, if the original is a 'low-angle shot', a slight pan or a 'medium shot' could be a logical next step. A complete switch to a 'drone shot' would be too jarring.
+- **Adhere to Locks:** If any fields are locked, their values MUST NOT be changed.
+
+Fill out all fields in the provided JSON schema based on this "next frame" concept.
+
+Original Scene (The "frame" at T=0 seconds):
 ${JSON.stringify(currentPrompt, null, 2)}`;
 
     if (lockedEntries.length > 0) {
