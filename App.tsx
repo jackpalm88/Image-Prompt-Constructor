@@ -1,15 +1,20 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Tab, HistoryItem, PromptData, ImageFile, Template } from './types';
+import { Tab, HistoryItem, PromptData, ImageFile, Template, UserProfile } from './types';
 import { TABS } from './constants';
 import GenerateView from './components/GenerateView';
 import EditView from './components/EditView';
 import ComposeView from './components/ComposeView';
 import HistoryView from './components/HistoryView';
 import PromptsManager from './components/PromptsManager';
-import { SparklesIcon, BrushIcon, ComposeIcon, HistoryIcon, PromptsIcon } from './components/icons';
+import { SparklesIcon, BrushIcon, ComposeIcon, HistoryIcon, PromptsIcon, UserIcon, CreditCardIcon } from './components/icons';
 import { DomaLogo } from './components/Logo';
+import { ensureAuthSession } from './services/auth';
+import { fetchCurrentUser } from './services/userService';
+import TeamAdminView from './components/TeamAdminView';
+import type { WorkspacePayload } from './services/workspaceService';
+import BillingView from './components/BillingView';
 
 export type Notification = {
   type: 'success' | 'error';
@@ -49,6 +54,9 @@ const App: React.FC = () => {
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [lockedFields, setLockedFields] = useState<Record<keyof PromptData, boolean>>(initialLockedFields);
   const [remixHint, setRemixHint] = useState('');
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [isUserLoading, setIsUserLoading] = useState(true);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<WorkspacePayload | null>(null);
 
 
   useEffect(() => {
@@ -59,6 +67,37 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [notification]);
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        await ensureAuthSession();
+        const profile = await fetchCurrentUser();
+        setUser(profile);
+        setWorkspaceSnapshot(prev =>
+          prev
+            ? {
+                ...prev,
+                workspace: {
+                  ...prev.workspace,
+                  credits: profile.workspace.credits,
+                  name: profile.workspace.name,
+                  role: profile.workspace.role,
+                },
+                billing: profile.billing,
+              }
+            : null,
+        );
+      } catch (error) {
+        console.error(error);
+        setNotification({ type: 'error', message: 'Unable to load account credits.' });
+      } finally {
+        setIsUserLoading(false);
+      }
+    };
+
+    bootstrap();
+  }, []);
 
   const addHistoryItem = (resultImage: string, prompt: string, inputImages: string[] = [], promptData?: PromptData) => {
     const newItem: HistoryItem = {
@@ -118,12 +157,34 @@ const App: React.FC = () => {
     setHighlightedTemplateId(undefined);
   };
 
+  const handleCreditsUpdate = (credits: number) => {
+    setUser(prev =>
+      prev
+        ? {
+            ...prev,
+            credits,
+            workspace: { ...prev.workspace, credits },
+          }
+        : prev,
+    );
+    setWorkspaceSnapshot(prev =>
+      prev
+        ? {
+            ...prev,
+            workspace: { ...prev.workspace, credits },
+          }
+        : prev,
+    );
+  };
+
   const getIconForTab = (tabId: Tab) => {
     switch(tabId) {
         case Tab.Generate: return <SparklesIcon className="h-5 w-5 mr-2" />;
         case Tab.Edit: return <BrushIcon className="h-5 w-5 mr-2" />;
         case Tab.Compose: return <ComposeIcon className="h-5 w-5 mr-2" />;
         case Tab.History: return <HistoryIcon className="h-5 w-5 mr-2" />;
+        case Tab.Team: return <UserIcon className="h-5 w-5 mr-2" />;
+        case Tab.Billing: return <CreditCardIcon className="h-5 w-5 mr-2" />;
         default: return null;
     }
   }
@@ -134,6 +195,14 @@ const App: React.FC = () => {
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
           <DomaLogo />
           <div className="flex items-center space-x-2">
+            <div className="hidden sm:flex flex-col items-end mr-2">
+              <span className="text-sm font-semibold text-doma-dark-gray">
+                {isUserLoading
+                  ? 'Loading…'
+                  : `${workspaceSnapshot?.workspace.credits ?? user?.workspace.credits ?? '—'} credits`}
+              </span>
+              <span className="text-xs text-gray-500">{workspaceSnapshot?.workspace.name ?? user?.workspace.name ?? 'Smart balance'}</span>
+            </div>
             <button
                 onClick={() => openPromptsManager()}
                 className="flex items-center px-3 py-1.5 md:px-4 md:py-2 rounded-full text-sm font-semibold transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-doma-yellow bg-white/50 text-doma-dark-gray hover:bg-white border border-black/5 shadow-sm"
@@ -193,9 +262,9 @@ const App: React.FC = () => {
         />
 
         <div className={activeTab === Tab.Generate ? 'block h-full' : 'hidden'}>
-            <GenerateView 
-              setNotification={setNotification} 
-              addHistoryItem={addHistoryItem} 
+            <GenerateView
+              setNotification={setNotification}
+              addHistoryItem={addHistoryItem}
               imageToLoad={imageToGenerate}
               onImageLoaded={() => setImageToGenerate(null)}
               // Pass hoisted state and setters
@@ -215,6 +284,9 @@ const App: React.FC = () => {
               setRemixHint={setRemixHint}
               onApplyTemplate={handleApplyTemplate}
               openPromptsManager={openPromptsManager}
+              userCredits={user?.workspace.credits ?? null}
+              onCreditsUpdate={handleCreditsUpdate}
+              billingVariant={user?.billing.abVariant ?? 'v1'}
             />
         </div>
         <div className={activeTab === Tab.Edit ? 'block h-full' : 'hidden'}>
@@ -229,13 +301,46 @@ const App: React.FC = () => {
             <ComposeView setNotification={setNotification} addHistoryItem={addHistoryItem} />
         </div>
         <div className={activeTab === Tab.History ? 'block h-full' : 'hidden'}>
-            <HistoryView 
-              history={history} 
-              onUsePrompt={handleUsePromptFromHistory} 
-              setNotification={setNotification} 
+            <HistoryView
+              history={history}
+              onUsePrompt={handleUsePromptFromHistory}
+              setNotification={setNotification}
               onLoadImageForEdit={handleLoadImageForEdit}
               onLoadImageForGenerate={handleLoadImageForGenerate}
             />
+        </div>
+        <div className={activeTab === Tab.Team ? 'block h-full' : 'hidden'}>
+          <TeamAdminView
+            currentUser={user}
+            onWorkspaceUpdate={(data) => {
+              setWorkspaceSnapshot(data);
+              setUser(prev =>
+                prev
+                  ? {
+                      ...prev,
+                      workspace: {
+                        ...prev.workspace,
+                        credits: data.workspace.credits,
+                        name: data.workspace.name,
+                        role: data.workspace.role,
+                      },
+                      credits: data.workspace.credits,
+                      isWorkspaceAdmin: data.workspace.role === 'owner' || data.workspace.role === 'admin',
+                      billing: data.billing,
+                    }
+                  : prev,
+              );
+            }}
+          />
+        </div>
+        <div className={activeTab === Tab.Billing ? 'block h-full' : 'hidden'}>
+          <BillingView
+            currentUser={user}
+            onBillingUpdate={(billing) => {
+              setUser(prev => (prev ? { ...prev, billing } : prev));
+              setWorkspaceSnapshot(prev => (prev ? { ...prev, billing } : prev));
+            }}
+          />
         </div>
       </main>
     </div>

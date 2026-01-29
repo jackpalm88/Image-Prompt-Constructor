@@ -1,10 +1,22 @@
-import { Template, PromptData } from '../types';
+import type { Template, PromptData } from '../types';
 import { STYLE_PRESETS } from '../constants';
+import { authorizedFetch } from './auth';
 
 const TEMPLATES_KEY = 'doma-image-studio-templates';
+const TEMPLATE_VERSIONS_KEY = 'doma-template-version-map';
 const OLD_PRESETS_KEY = 'nano-banana-presets'; // For migration
 
 // --- Search Index ---
+
+export type TemplateVersionEntry = {
+  version: number;
+  imageUrl: string;
+  promptData: PromptData;
+  jobId?: string;
+  slot?: number;
+  createdAt: number;
+  promotedAt: number | null;
+};
 
 export type DocMeta = {
   name: string;
@@ -22,6 +34,52 @@ export type BuiltIndex = {
 };
 
 let searchIndex: BuiltIndex | null = null;
+type TemplateVersionState = {
+  currentVersion: number | null;
+  versions: TemplateVersionEntry[];
+};
+
+const getVersionStore = (): Record<string, TemplateVersionState> => {
+  try {
+    const raw = localStorage.getItem(TEMPLATE_VERSIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, TemplateVersionState>;
+      return parsed;
+    }
+  } catch (error) {
+    console.error('Failed to parse template version state', error);
+  }
+  return {};
+};
+
+const saveVersionStore = (store: Record<string, TemplateVersionState>) => {
+  try {
+    localStorage.setItem(TEMPLATE_VERSIONS_KEY, JSON.stringify(store));
+  } catch (error) {
+    console.error('Failed to persist template version state', error);
+  }
+};
+
+const persistVersionToServer = async (
+  payload: TemplateVersionEntry & { signature: string },
+) => {
+  try {
+    await authorizedFetch('/api/templates/version', {
+      method: 'POST',
+      body: JSON.stringify({
+        signature: payload.signature,
+        version: payload.version,
+        promptData: payload.promptData,
+        imageUrl: payload.imageUrl,
+        jobId: payload.jobId,
+        slot: payload.slot,
+        promotedAt: payload.promotedAt ?? Date.now(),
+      }),
+    });
+  } catch (error) {
+    console.warn('Failed to persist template version server-side', error);
+  }
+};
 
 const STOPWORDS = new Set(['a', 'an', 'the', 'in', 'on', 'of', 'for', 'with', 'by', 'as', 'is', 'are', 'was', 'were', 'to', 'and', 'it', 'from', 'or', 'at', 'i', 'you', 'he', 'she', 'we', 'they']);
 
@@ -488,6 +546,97 @@ export const recordSuccess = async (signature: string): Promise<void> => {
             renderSuccessCount: (template.renderSuccessCount || 0) + 1,
         });
     }
+};
+
+export const getTemplateVersions = async (signature: string): Promise<TemplateVersionEntry[]> => {
+  const store = getVersionStore();
+  return store[signature]?.versions ?? [];
+};
+
+export const getCurrentTemplateVersion = async (signature: string): Promise<TemplateVersionEntry | null> => {
+  const store = getVersionStore();
+  const state = store[signature];
+  if (!state || !state.currentVersion) {
+    return null;
+  }
+  return state.versions.find((entry) => entry.version === state.currentVersion) ?? null;
+};
+
+export const promoteTemplateVersion = async (
+  signature: string,
+  payload: { imageUrl: string; promptData: PromptData; jobId?: string; slot?: number },
+): Promise<{ previousVersion: number | null; entry: TemplateVersionEntry }> => {
+  const store = getVersionStore();
+  const state = store[signature] ?? { currentVersion: null, versions: [] };
+  const previousVersion = state.currentVersion;
+  const highestVersion = state.versions.reduce((max, entry) => Math.max(max, entry.version), 0);
+  const nextVersion = highestVersion + 1;
+  const createdAt = Date.now();
+
+  const entry: TemplateVersionEntry = {
+    version: nextVersion,
+    imageUrl: payload.imageUrl,
+    promptData: payload.promptData,
+    jobId: payload.jobId,
+    slot: payload.slot,
+    createdAt,
+    promotedAt: createdAt,
+  };
+
+  const updatedVersions = [...state.versions.map((existing) => ({ ...existing, promotedAt: existing.promotedAt })) , entry];
+
+  store[signature] = {
+    currentVersion: nextVersion,
+    versions: updatedVersions,
+  };
+
+  saveVersionStore(store);
+
+  const template = await findTemplateBySignature(signature);
+  if (template) {
+    await updateTemplate(template.id, { thumbnail: payload.imageUrl });
+  }
+
+  await persistVersionToServer({ ...entry, signature });
+
+  return { previousVersion, entry };
+};
+
+export const rollbackTemplateVersion = async (
+  signature: string,
+  version: number,
+): Promise<TemplateVersionEntry | null> => {
+  const store = getVersionStore();
+  const state = store[signature];
+  if (!state) {
+    return null;
+  }
+
+  const target = state.versions.find((entry) => entry.version === version);
+  if (!target) {
+    return null;
+  }
+
+  const updatedVersions = state.versions.map((entry) => ({
+    ...entry,
+    promotedAt: entry.version === version ? Date.now() : entry.promotedAt,
+  }));
+
+  store[signature] = {
+    currentVersion: version,
+    versions: updatedVersions,
+  };
+
+  saveVersionStore(store);
+
+  const template = await findTemplateBySignature(signature);
+  if (template) {
+    await updateTemplate(template.id, { thumbnail: target.imageUrl });
+  }
+
+  await persistVersionToServer({ ...target, signature, promotedAt: Date.now() });
+
+  return target;
 };
 
 export const exportTemplates = async (ids?: string[]): Promise<string> => {

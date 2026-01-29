@@ -1,27 +1,73 @@
+import { QUICK_SELECT_OPTIONS, STYLE_PRESETS } from '../constants';
+import type { PromptData, ImageFile, Template } from '../types';
+import { authorizedFetch } from './auth';
 
+export interface GenerateImageOptions {
+  qualityBand: string;
+  base?: number;
+  fieldHash?: string;
+}
 
-import { GoogleGenAI, Modality, GenerateContentResponse, Type } from "@google/genai";
-import { PromptData, ImageFile, Template } from '../types';
+export interface GenerateImageResult {
+  imageUrl: string;
+  prompt: string;
+  price: number;
+  creditsCharged: number;
+  remainingCredits: number;
+  predictionScore: number;
+  confidence: 'green' | 'amber' | 'red';
+  label: 'Likely' | 'Uncertain' | 'At risk';
+  variant: 'v1' | 'v2';
+}
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export type BatchJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
-export const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
+export interface BatchResultSummary {
+  slot: number;
+  status: BatchJobStatus;
+  imageUrl?: string | null;
+  error?: string | null;
+}
+
+export interface BatchJobSummary {
+  id: string;
+  status: BatchJobStatus;
+  batchSize: number;
+  qualityBand: string;
+  pricePerImage: number;
+  creditsPerImage: number;
+  creditsCharged: number;
+  predictionScore: number | null;
+  confidence: 'green' | 'amber' | 'red' | null;
+  label: 'Likely' | 'Uncertain' | 'At risk' | null;
+  remainingCredits: number | null;
+  createdAt: number;
+  updatedAt: number;
+  results: BatchResultSummary[];
+  pricingVariant: 'v1' | 'v2';
+}
+
+export type ParsedBulkPrompt = Omit<Template, 'id' | 'favorite' | 'pinned' | 'usageCount' | 'renderSuccessCount' | 'lastUsed' | 'createdAt' | 'updatedAt' | 'signature'>;
+
+const randomFrom = <T,>(items: readonly T[]): T => items[Math.floor(Math.random() * items.length)];
+
+export const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = error => reject(error);
+    reader.onerror = (error) => reject(error);
   });
-};
 
-export const createThumbnail = (base64Image: string, size = 256): Promise<string> => {
-  return new Promise((resolve, reject) => {
+export const createThumbnail = (base64Image: string, size = 256): Promise<string> =>
+  new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        return reject(new Error('Could not get canvas context'));
+        reject(new Error('Could not get canvas context'));
+        return;
       }
 
       let { width, height } = img;
@@ -31,428 +77,204 @@ export const createThumbnail = (base64Image: string, size = 256): Promise<string
           height *= size / width;
           width = size;
         }
-      } else {
-        if (height > size) {
-          width *= size / height;
-          height = size;
-        }
+      } else if (height > size) {
+        width *= size / height;
+        height = size;
       }
 
       canvas.width = width;
       canvas.height = height;
-
       ctx.drawImage(img, 0, 0, width, height);
-      // Use JPEG for better compression of photographic images, crucial for localStorage
       resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
     img.onerror = (err) => reject(err);
     img.src = base64Image;
   });
+
+const toServerImage = (image?: ImageFile | null) =>
+  image
+    ? {
+        base64: image.base64,
+        mimeType: image.file.type,
+      }
+    : undefined;
+
+export const generateImage = async (
+  promptData: PromptData,
+  subjectImage: ImageFile | null,
+  environmentImage: ImageFile | null,
+  options: GenerateImageOptions,
+): Promise<GenerateImageResult> => {
+  const response = await authorizedFetch('/api/generate-image', {
+    method: 'POST',
+    body: JSON.stringify({
+      promptData,
+      subjectImage: toServerImage(subjectImage) ?? null,
+      environmentImage: toServerImage(environmentImage) ?? null,
+      qualityBand: options.qualityBand,
+      base: options.base,
+      fieldHash: options.fieldHash,
+    }),
+  });
+
+  if (response.status === 402) {
+    const error = await response.json();
+    throw new Error(error?.error ?? 'Insufficient credits');
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error?.error ?? 'Failed to generate image');
+  }
+
+  return (await response.json()) as GenerateImageResult;
 };
 
-const extractImageFromResponse = (response: GenerateContentResponse): string | null => {
-    for (const part of response.candidates?.[0]?.content?.parts ?? []) {
-        if (part.inlineData?.data) {
-            const mimeType = part.inlineData.mimeType;
-            return `data:${mimeType};base64,${part.inlineData.data}`;
-        }
-    }
-    return null;
-}
+export const startBatchGeneration = async (
+  promptData: PromptData,
+  subjectImage: ImageFile | null,
+  environmentImage: ImageFile | null,
+  options: GenerateImageOptions & { batchSize: 4 | 8 },
+): Promise<BatchJobSummary> => {
+  const response = await authorizedFetch('/api/generate-batch', {
+    method: 'POST',
+    body: JSON.stringify({
+      promptData,
+      subjectImage: toServerImage(subjectImage) ?? null,
+      environmentImage: toServerImage(environmentImage) ?? null,
+      qualityBand: options.qualityBand,
+      base: options.base,
+      batchSize: options.batchSize,
+      fieldHash: options.fieldHash,
+    }),
+  });
 
-export const generateImage = async (promptData: PromptData, subjectImage: ImageFile | null, environmentImage: ImageFile | null): Promise<string> => {
-    const fullPrompt = `${promptData.subject}, ${promptData.action}, ${promptData.environment}. In the style of ${promptData.style}, with ${promptData.lighting}, shot with a ${promptData.camera}.`;
+  if (response.status === 402) {
+    const error = await response.json();
+    throw new Error(error?.error ?? 'Insufficient credits for batch generation');
+  }
 
-    // If any image is provided, use the multi-modal model
-    if (subjectImage || environmentImage) {
-        const parts: any[] = [];
-        
-        if (subjectImage) {
-            parts.push({ inlineData: { data: subjectImage.base64, mimeType: subjectImage.file.type } });
-        }
-        if (environmentImage) {
-            parts.push({ inlineData: { data: environmentImage.base64, mimeType: environmentImage.file.type } });
-        }
-        
-        parts.push({ text: fullPrompt });
-        
-        try {
-            const response = await ai.models.generateContent({
-                // FIX: Updated deprecated model name
-                model: 'gemini-2.5-flash-image',
-                contents: { parts },
-                config: {
-                    responseModalities: [Modality.IMAGE, Modality.TEXT],
-                },
-            });
-            const imageUrl = extractImageFromResponse(response);
-            if (!imageUrl) {
-                const textResponse = response.text?.trim();
-                console.error("Image generation failed. Model may have responded with only text:", textResponse || "No text response.");
-                console.error("Full model response object for debugging:", response);
-                throw new Error("No image generated in response. The model may have refused the request. See console for full response details.");
-            }
-            return imageUrl;
-        } catch (error) {
-            console.error("Error generating image with reference(s):", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (errorMessage.includes("safety")) {
-                 throw new Error("Failed to generate image due to safety policy. Please adjust your prompt.");
-            }
-            if (errorMessage.startsWith("No image generated")) {
-                throw error;
-            }
-            throw new Error("Failed to generate image. Check console for details.");
-        }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error?.error ?? 'Failed to start batch generation');
+  }
 
-    } else {
-        // Use standard text-to-image generation if no images are provided
-        try {
-            const response = await ai.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: fullPrompt,
-                config: {
-                    numberOfImages: 1,
-                    outputMimeType: 'image/png',
-                    aspectRatio: '1:1',
-                },
-            });
+  const payload = (await response.json()) as { job: BatchJobSummary };
+  return payload.job;
+};
 
-            if (!response.generatedImages || response.generatedImages.length === 0) {
-                throw new Error("No image generated in response.");
-            }
+export const fetchBatchJob = async (jobId: string): Promise<BatchJobSummary> => {
+  const response = await authorizedFetch(`/api/generate-batch/${jobId}`);
 
-            const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-            return `data:image/png;base64,${base64ImageBytes}`;
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error?.error ?? 'Failed to load batch job');
+  }
 
-        } catch (error) {
-            console.error("Error generating image:", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (errorMessage.includes("safety")) {
-                 throw new Error("Failed to generate image due to safety policy. Please adjust your prompt.");
-            }
-            throw new Error("Failed to generate image. Check console for details.");
-        }
-    }
+  const payload = (await response.json()) as { job: BatchJobSummary };
+  return payload.job;
 };
 
 export const suggestFieldOptions = async (field: keyof PromptData, context: PromptData): Promise<string[]> => {
-    const prompt = `You are a creative assistant for an image generation tool.
-Given the scene described by the following JSON, suggest 5 creative and diverse options for the "${field}" field.
-The current value is "${context[field]}". Do not suggest options too similar to the current value or each other.
-Provide your response as a JSON array of 5 strings.
+  const baseOptions = QUICK_SELECT_OPTIONS[field] ?? [];
+  const recycled: string[] = baseOptions.slice(0, 5);
 
-Scene Context:
-${JSON.stringify(context, null, 2)}`;
-    
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING }
-                }
-            }
-        });
-        const jsonStr = response.text.trim();
-        const suggestions = JSON.parse(jsonStr);
-        if (Array.isArray(suggestions) && suggestions.every(s => typeof s === 'string')) {
-            return suggestions;
-        }
-        throw new Error("Invalid response format from AI suggestions.");
-    } catch (error) {
-         console.error("Error suggesting field options:", error);
-        throw new Error("Failed to get AI suggestions. Check console for details.");
-    }
+  if (context[field] && !recycled.includes(context[field])) {
+    recycled.unshift(context[field]);
+  }
+
+  return Array.from(new Set(recycled)).slice(0, 5);
 };
 
-const PROMPT_IDEA_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-        subject: { type: Type.STRING, description: "A detailed description of the main subject of the scene." },
-        action: { type: Type.STRING, description: "The action the subject is performing." },
-        environment: { type: Type.STRING, description: "A detailed description of the background and environment." },
-        style: { type: Type.STRING, description: "The artistic style of the image (e.g., photorealistic, impressionistic, cyberpunk)." },
-        lighting: { type: Type.STRING, description: "The lighting conditions of the scene (e.g., golden hour, neon glow, dramatic backlighting)." },
-        camera: { type: Type.STRING, description: "The camera angle, shot type, or lens used (e.g., low-angle shot, wide-angle lens, drone shot)." }
-    },
-    required: ["subject", "action", "environment", "style", "lighting", "camera"]
+export const generateFullPromptIdea = async (
+  _subjectImage: ImageFile | null,
+  _environmentImage: ImageFile | null,
+): Promise<PromptData> => {
+  return { ...randomFrom(STYLE_PRESETS).data };
 };
 
-export const generateFullPromptIdea = async (subjectImage: ImageFile | null, environmentImage: ImageFile | null): Promise<PromptData> => {
-    const parts: any[] = [];
-    let promptText = "You are a creative assistant for an image generation tool. Generate a full, creative, and coherent scene idea by filling out all fields in the provided JSON schema. The scene should be imaginative and visually interesting.\n\n";
+export const suggestTemplateMetadata = async (
+  promptData: PromptData,
+): Promise<{ name: string; category: string; tags: string[] }> => {
+  const nameBase = promptData.subject || promptData.environment || 'Untitled Vision';
+  const words = nameBase.split(/[,\-]/)[0].trim().split(' ').filter(Boolean);
+  const title = words
+    .slice(0, 3)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(' ');
 
-    if (subjectImage && environmentImage) {
-        promptText += "The user has provided two images. The first is the subject, the second is a style reference for the environment. Create a prompt that places the subject into a scene inspired by the environment reference. Base your descriptions on these images.";
-        parts.push({ inlineData: { data: subjectImage.base64, mimeType: subjectImage.file.type } });
-        parts.push({ inlineData: { data: environmentImage.base64, mimeType: environmentImage.file.type } });
-    } else if (subjectImage) {
-        promptText += "The user has provided an image of a subject. Create a prompt that places this subject into a new, interesting scene. Base your subject description on this image.";
-        parts.push({ inlineData: { data: subjectImage.base64, mimeType: subjectImage.file.type } });
-    } else if (environmentImage) {
-        promptText += "The user has provided a reference image for an environment. Analyze the provided reference image. Describe the scene in the image by filling out all fields in the provided JSON schema. Extract details about the environment, style, lighting, and camera directly from the image. For 'subject' and 'action', invent a plausible subject and action that would fit naturally into this environment.";
-        parts.push({ inlineData: { data: environmentImage.base64, mimeType: environmentImage.file.type } });
-    } else {
-        promptText += "Generate a completely new and random scene idea.";
-    }
+  const category = /city|urban|street/i.test(promptData.environment)
+    ? 'Urban'
+    : /forest|nature|mountain|valley/i.test(promptData.environment)
+    ? 'Nature'
+    : /studio|product/i.test(promptData.subject)
+    ? 'Product'
+    : 'Creative';
 
-    parts.push({ text: promptText });
+  const tags = Array.from(
+    new Set(
+      [promptData.style, promptData.lighting, promptData.camera]
+        .flatMap((value) => value.split(/[,]/).map((tag) => tag.trim()))
+        .filter(Boolean),
+    ),
+  ).slice(0, 4);
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: PROMPT_IDEA_SCHEMA
-            }
-        });
-        const jsonStr = response.text.trim();
-        const idea = JSON.parse(jsonStr);
-        if (typeof idea === 'object' && idea !== null && 'subject' in idea && 'action' in idea && 'environment' in idea && 'style' in idea && 'lighting' in idea && 'camera' in idea) {
-             return idea as PromptData;
-        }
-        throw new Error("Invalid response format from AI idea generation.");
-    } catch (error) {
-         console.error("Error generating full prompt idea:", error);
-        throw new Error("Failed to get AI inspiration. Check console for details.");
-    }
+  return {
+    name: title || 'Creative Vision',
+    category,
+    tags: tags.length ? tags : ['creative'],
+  };
 };
 
-const TEMPLATE_METADATA_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-        name: { type: Type.STRING, description: "A short, descriptive title for the prompt (max 5 words), e.g., 'Cyberpunk Detective'." },
-        category: { type: Type.STRING, description: "A single, relevant category for this prompt, e.g., 'Sci-Fi', 'Nature', 'Portraits'." },
-        tags: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "An array of 3-5 relevant lowercase keywords (tags) for searching, e.g., ['neon', 'city', 'dystopian']."
-        }
-    },
-    required: ["name", "category", "tags"]
-};
+export const remixPromptIdea = async (
+  currentPrompt: PromptData,
+  lockedFields: Record<keyof PromptData, boolean>,
+  remixHint?: string,
+): Promise<PromptData> => {
+  const next: PromptData = { ...currentPrompt };
 
-export const suggestTemplateMetadata = async (promptData: PromptData): Promise<{name: string, category: string, tags: string[]}> => {
-    const prompt = `You are an expert prompt engineering assistant.
-Given the following structured image prompt, generate a short, descriptive name (max 5 words), a single relevant category, and an array of 3-5 relevant lowercase keywords (tags).
-The name should be a concise and appealing title for the scene.
+  (Object.keys(next) as (keyof PromptData)[]).forEach((key) => {
+    if (lockedFields[key]) return;
+    const options = QUICK_SELECT_OPTIONS[key] ?? [currentPrompt[key]];
+    let candidate = randomFrom(options);
 
-Image Prompt Details:
----
-Subject: ${promptData.subject}
-Action: ${promptData.action}
-Environment: ${promptData.environment}
-Style: ${promptData.style}
-Lighting: ${promptData.lighting}
-Camera: ${promptData.camera}
----
-`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: TEMPLATE_METADATA_SCHEMA,
-            }
-        });
-
-        const jsonStr = response.text.trim();
-        const metadata = JSON.parse(jsonStr);
-
-        if (metadata && typeof metadata.name === 'string' && typeof metadata.category === 'string' && Array.isArray(metadata.tags)) {
-            return metadata;
-        }
-        throw new Error("AI response did not match the expected format.");
-
-    } catch (error) {
-        console.error("Error suggesting template metadata:", error);
-        throw new Error("Failed to get AI suggestions for template details. Check console for details.");
-    }
-};
-
-export const remixPromptIdea = async (currentPrompt: PromptData, lockedFields: Record<keyof PromptData, boolean>, remixHint?: string): Promise<PromptData> => {
-    const lockedEntries = Object.entries(lockedFields)
-        .filter(([, isLocked]) => isLocked)
-        .map(([key]) => key as keyof PromptData);
-
-    let promptText = `You are a creative assistant for a cinematic image generation tool.
-You will be given a JSON object describing an existing scene, as if it's a single frame from a film.
-Your task is to generate a new, coherent scene description for the VERY NEXT shot, imagining what happens approximately 5 seconds later in the story.
-
-- **Maintain Continuity:** The subject, environment, and overall style should remain consistent with the original scene unless a specific change is requested.
-- **Logical Progression:** The 'action' should be a natural continuation of the previous one.
-- **Subtle Changes:** You might subtly alter the camera angle or lighting to reflect the passage of a few seconds, but avoid drastic jumps. For example, if the original is a 'low-angle shot', a slight pan or a 'medium shot' could be a logical next step. A complete switch to a 'drone shot' would be too jarring.
-- **Adhere to Locks:** If any fields are locked, their values MUST NOT be changed.
-
-Fill out all fields in the provided JSON schema based on this "next frame" concept.
-
-Original Scene (The "frame" at T=0 seconds):
-${JSON.stringify(currentPrompt, null, 2)}`;
-
-    if (lockedEntries.length > 0) {
-        promptText += `\n\nIMPORTANT: The following fields are locked and their values MUST NOT be changed. Use the exact values provided in the "Original Scene" for these fields:\n- ${lockedEntries.join('\n- ')}`;
+    if (remixHint && !candidate.toLowerCase().includes(remixHint.toLowerCase())) {
+      candidate = `${candidate}, ${remixHint}`;
     }
 
-    if (remixHint?.trim()) {
-        promptText += `\n\nADDITIONAL INSTRUCTION: When generating the new scene, incorporate this specific hint: "${remixHint.trim()}"`;
-    }
+    next[key] = candidate;
+  });
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: promptText,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: PROMPT_IDEA_SCHEMA,
-            }
-        });
-        const jsonStr = response.text.trim();
-        const idea = JSON.parse(jsonStr);
-        if (typeof idea === 'object' && idea !== null && 'subject' in idea && 'action' in idea && 'environment' in idea && 'style' in idea && 'lighting' in idea && 'camera' in idea) {
-             return idea as PromptData;
-        }
-        throw new Error("Invalid response format from AI idea remixing.");
-    } catch (error) {
-         console.error("Error remixing prompt idea:", error);
-        throw new Error("Failed to get AI remix. Check console for details.");
-    }
+  return next;
 };
 
-export const editImage = async (base64Image: string, mimeType: string, changePrompt: string, keepPrompt: string): Promise<string> => {
-    const prompt = `[System]
-You are Nano Banana (Gemini 2.5 Flash Image).
-Preserve photorealism and lighting consistency. Apply ONLY requested changes.
-
-[User]
-Task Type: edit
-Constraints:
-- Change only: ${changePrompt}
-- Keep untouched: ${keepPrompt}`;
-
-    try {
-        const response = await ai.models.generateContent({
-            // FIX: Updated deprecated model name
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [
-                    { inlineData: { data: base64Image, mimeType } },
-                    { text: prompt },
-                ]
-            },
-            config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT],
-            },
-        });
-        const imageUrl = extractImageFromResponse(response);
-        if (!imageUrl) throw new Error("No image generated in response.");
-        return imageUrl;
-    } catch (error) {
-        console.error("Error editing image:", error);
-        throw new Error("Failed to edit image. Check console for details.");
-    }
+export const editImage = async () => {
+  throw new Error('Image editing is only available on the managed backend at this time.');
 };
 
-export const composeImages = async (images: {base64: string, mimeType: string}[], composePrompt: string): Promise<string> => {
-    const prompt = `[System]
-You are Nano Banana (Gemini 2.5 Flash Image).
-Preserve photorealism and lighting consistency. Apply ONLY requested changes.
-
-[User]
-Task Type: compose
-Instructions: ${composePrompt}
-- Blend elements from the provided images with lighting match.`;
-
-    const parts = [
-        ...images.map(img => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
-        { text: prompt },
-    ];
-
-    try {
-        const response = await ai.models.generateContent({
-            // FIX: Updated deprecated model name
-            model: 'gemini-2.5-flash-image',
-            contents: { parts },
-            config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT],
-            },
-        });
-        const imageUrl = extractImageFromResponse(response);
-        if (!imageUrl) throw new Error("No image generated in response.");
-        return imageUrl;
-    } catch (error) {
-        console.error("Error composing images:", error);
-        throw new Error("Failed to compose images. Check console for details.");
-    }
+export const composeImages = async () => {
+  throw new Error('Image composition is only available on the managed backend at this time.');
 };
-
-const BULK_PROMPT_ITEM_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-        name: { type: Type.STRING, description: "A short, descriptive title for the preset, e.g., 'Cyberpunk Detective'." },
-        category: { type: Type.STRING, description: "A single, relevant category for this prompt, e.g., 'Sci-Fi', 'Nature', 'Portraits'." },
-        tags: { 
-            type: Type.ARRAY, 
-            items: { type: Type.STRING }, 
-            description: "An array of 2-4 relevant keywords (tags) for searching, e.g., ['neon', 'city', 'dystopian']." 
-        },
-        subject: { type: Type.STRING, description: "A detailed description of the main subject of the scene." },
-        action: { type: Type.STRING, description: "The action the subject is performing." },
-        environment: { type: Type.STRING, description: "A detailed description of the background and environment." },
-        style: { type: Type.STRING, description: "The artistic style of the image (e.g., photorealistic, impressionistic, cyberpunk)." },
-        lighting: { type: Type.STRING, description: "The lighting conditions of the scene (e.g., golden hour, neon glow, dramatic backlighting)." },
-        camera: { type: Type.STRING, description: "The camera angle, shot type, or lens used (e.g., low-angle shot, wide-angle lens, drone shot)." }
-    },
-    required: ["name", "category", "tags", "subject", "action", "environment", "style", "lighting", "camera"]
-};
-
-const BULK_PROMPT_SCHEMA = {
-    type: Type.ARRAY,
-    items: BULK_PROMPT_ITEM_SCHEMA
-};
-
-export type ParsedBulkPrompt = Omit<Template, 'id' | 'favorite' | 'pinned' | 'usageCount' | 'lastUsed' | 'createdAt' | 'updatedAt'>;
 
 export const parseBulkPrompts = async (rawText: string): Promise<ParsedBulkPrompt[]> => {
-    const prompt = `You are an expert prompt engineering assistant.
-Analyze the following block of text, which contains multiple distinct image generation prompts, each separated by a newline.
-For each individual prompt line, parse its content into a structured JSON object with the required fields.
-- The 'name' field should be a short, descriptive title for the preset (e.g., 'Cyberpunk Detective', 'Fantasy Landscape').
-- The 'category' field should be a single, relevant category.
-- The 'tags' field should be an array of 2-4 relevant keywords.
-- The other six fields should break down the prompt into its constituent parts.
-Return a single JSON array containing all the parsed prompt objects.
+  const lines = rawText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-Input Text:
----
-${rawText}
----
-`;
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: BULK_PROMPT_SCHEMA,
-            }
-        });
-        
-        const jsonStr = response.text.trim();
-        const parsedData = JSON.parse(jsonStr);
-
-        if (Array.isArray(parsedData)) {
-            return parsedData;
-        }
-        throw new Error("AI response was not an array.");
-    } catch (error) {
-        console.error("Error parsing bulk prompts:", error);
-        throw new Error("Failed to parse prompts with AI. Check console for details.");
-    }
+  return lines.map((line, index) => ({
+    name: `Preset ${index + 1}`,
+    category: 'Imported',
+    tags: line
+      .split(/[,]/)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 4),
+    subject: line,
+    action: '',
+    environment: '',
+    style: '',
+    lighting: '',
+    camera: '',
+  }));
 };

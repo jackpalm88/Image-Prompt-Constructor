@@ -18,6 +18,15 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        rollupOptions: {
+          input: {
+            main: path.resolve(__dirname, 'index.html'),
+            figmaPlugin: path.resolve(__dirname, 'figma-plugin.html'),
+            figmaOAuthCallback: path.resolve(__dirname, 'figma-oauth-callback.html'),
+          },
+        },
       }
     };
 });
